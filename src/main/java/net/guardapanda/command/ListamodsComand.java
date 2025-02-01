@@ -1,4 +1,4 @@
-package net.mcreator.guardapanda.command;
+package net.guardapanda.command;
 
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
