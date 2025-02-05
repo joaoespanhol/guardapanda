@@ -35,9 +35,13 @@ public class MinimodsCommand {
         CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
 
         dispatcher.register(Commands.literal("motd")
+            .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
+
             .then(Commands.literal("set")
+			            .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
                 .then(Commands.argument("message", StringArgumentType.greedyString())
                     .executes(context -> setMotd(context.getSource(), StringArgumentType.getString(context, "message")))))
+					            .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
             .then(Commands.literal("get")
                 .executes(context -> getMotd(context.getSource()))));
     }

@@ -23,10 +23,15 @@ public class ControlCommand {
     private static final Map<UUID, Entity> controllingPlayers = new HashMap<>();
     private static final Map<UUID, Integer> previousEntityIds = new HashMap<>();
 
+
+
+
     @SubscribeEvent
     public static void registerCommand(RegisterCommandsEvent event) {
         event.getDispatcher().register(
             Commands.literal("control")
+			    .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
+
                 .then(Commands.literal("on")
                     .executes(context -> enableControl(context)))
                 .then(Commands.literal("off")

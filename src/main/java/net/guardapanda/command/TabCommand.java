@@ -1,16 +1,21 @@
-
 package net.guardapanda.command;
-
 
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.server.ServerLifecycleHooks; // Usando ServerLifecycleHooks diretamente
+import net.minecraftforge.server.ServerLifecycleHooks;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundTabListPacket;
 import net.minecraft.network.chat.Component;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
 
 @Mod.EventBusSubscriber
 public class TabCommand {
@@ -21,11 +26,14 @@ public class TabCommand {
     private static int updateTickCounter = 0;
     private static final int UPDATE_INTERVAL = 50;
 
+    // Caminho do arquivo de configuração
+    private static final String CONFIG_FILE_PATH = "config/tablist_config.txt";
+
     static {
-        // Inicialização do cabeçalho e rodapé com valores padrão
-        header = Component.literal("\u00a76HSMP\n\u00a7e>> Welcome <<");
-        footer = Component.literal("\u00a7bJogadores Onlines: \u00a70\n" +
-                                   "\u00a7bVisit Discord: \u00a79https://discord.gg/gYnf4rZUHK");
+        // Inicializa o arquivo de configuração com valores padrão, se necessário
+        createDefaultConfigFileIfNotExists();
+        // Carrega as frases do arquivo de configuração
+        loadTabListComponents();
     }
 
     @SubscribeEvent
@@ -36,23 +44,62 @@ public class TabCommand {
 
             // Atualiza a TabList a cada "UPDATE_INTERVAL" ticks
             if (updateTickCounter >= UPDATE_INTERVAL) {
-                updateTabListComponents();
+                loadTabListComponents(); // Recarrega as frases do arquivo de configuração
                 updateTabListForAllPlayers();
                 updateTickCounter = 0; // Reinicia o contador
             }
         }
     }
 
-    private static void updateTabListComponents() {
-        // Cabeçalho da TabList
-        header = Component.literal("\u00a76HSMP\n\u00a7e>> Bem-vindo <<");
+    private static void createDefaultConfigFileIfNotExists() {
+        File configFile = new File(CONFIG_FILE_PATH);
+        if (!configFile.exists()) {
+            try {
+                configFile.getParentFile().mkdirs(); // Cria o diretório "config" se não existir
+                try (FileWriter writer = new FileWriter(configFile)) {
+                    writer.write("# Configuração da TabList\n");
+                    writer.write("# Edite as frases abaixo para personalizar o cabeçalho e rodapé da TabList.\n");
+                    writer.write("# Use \\n para quebras de linha.\n");
+                    writer.write("header=§6HSMP\\n§e>> Bem-vindo <<\n");
+                    writer.write("footer=§bJogadores Online: §a%online_players%\\n§bDiscord Link: §9https://discord.gg/gYnf4rZUHK\n");
+                }
+                System.out.println("[INFO] Arquivo de configuração criado: " + CONFIG_FILE_PATH);
+            } catch (IOException e) {
+                System.err.println("[ERRO] Falha ao criar o arquivo de configuração: " + CONFIG_FILE_PATH);
+                e.printStackTrace();
+            }
+        }
+    }
 
-        // Rodapé da TabList
-        int onlinePlayers = getOnlinePlayerCount();  // Obtém a contagem de jogadores online
-        int staffCount = getStaffCount();  // Obtém a contagem de jogadores staff
+    private static void loadTabListComponents() {
+        try {
+            List<String> lines = Files.readAllLines(Paths.get(CONFIG_FILE_PATH));
+            String headerText = "";
+            String footerText = "";
 
-        footer = Component.literal("\u00a7bJogador Online: \u00a7a" + onlinePlayers + "\n" + 
-                                   "\u00a7bDiscord Link: \u00a79https://discord.gg/gYnf4rZUHK");
+            for (String line : lines) {
+                if (line.startsWith("header=")) {
+                    headerText = line.substring(7).replace("\\n", "\n");
+                } else if (line.startsWith("footer=")) {
+                    footerText = line.substring(7).replace("\\n", "\n");
+                }
+            }
+
+            // Substitui placeholders dinâmicos
+            int onlinePlayers = getOnlinePlayerCount();
+            int staffCount = getStaffCount();
+            footerText = footerText.replace("%online_players%", String.valueOf(onlinePlayers))
+                                   .replace("%staff_count%", String.valueOf(staffCount));
+
+            // Converte para Component
+            header = Component.literal(headerText);
+            footer = Component.literal(footerText);
+
+            System.out.println("[INFO] Frases da TabList carregadas com sucesso.");
+        } catch (IOException e) {
+            System.err.println("[ERRO] Falha ao ler o arquivo de configuração: " + CONFIG_FILE_PATH);
+            e.printStackTrace();
+        }
     }
 
     private static void updateTabListForAllPlayers() {
