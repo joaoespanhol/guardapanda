@@ -1,4 +1,4 @@
-package net.guardapanda.optimization;
+/* package net.guardapanda.optimization;
 
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.event.TickEvent;
@@ -30,3 +30,4 @@ public class Memory {
         }
     }
 }
+*/
