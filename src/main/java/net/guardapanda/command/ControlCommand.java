@@ -7,11 +7,14 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.living.LivingAttackEvent;
+import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -24,20 +27,20 @@ public class ControlCommand {
 
     private static final Map<UUID, Entity> controllingPlayers = new HashMap<>();
     private static final Map<UUID, Inventory> playerInventories = new HashMap<>();
+    private static final Map<UUID, Inventory> controlledInventories = new HashMap<>();
     private static final Map<UUID, Vec3> playerOriginalPositions = new HashMap<>();
 
-	@SubscribeEvent
-	public static void registerCommand(RegisterCommandsEvent event) {
-	    event.getDispatcher().register(
-	        Commands.literal("control")
-	            .requires(source -> source.hasPermission(2)) // Nível de permissão 2 (OP)
-	            .then(Commands.literal("on")
-	                .executes(context -> enableControl(context)))
-	            .then(Commands.literal("off")
-	                .executes(context -> disableControl(context)))
-	    );
-	}
-
+    @SubscribeEvent
+    public static void registerCommand(RegisterCommandsEvent event) {
+        event.getDispatcher().register(
+            Commands.literal("control")
+                .requires(source -> source.hasPermission(2)) // Nível de permissão 2 (OP)
+                .then(Commands.literal("on")
+                    .executes(context -> enableControl(context)))
+                .then(Commands.literal("off")
+                    .executes(context -> disableControl(context)))
+        );
+    }
 
     private static int enableControl(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
@@ -62,22 +65,38 @@ public class ControlCommand {
         // Salva o inventário do jogador
         playerInventories.put(player.getUUID(), player.getInventory());
 
+        // Salva o inventário da entidade controlada
+        if (targetedEntity instanceof Player) {
+            Player controlledPlayer = (Player) targetedEntity;
+            controlledInventories.put(player.getUUID(), controlledPlayer.getInventory());
+        }
+
         // Transfere o inventário do jogador para a entidade controlada
         if (targetedEntity instanceof Player) {
             Player controlledPlayer = (Player) targetedEntity;
-            Inventory controlledInventory = controlledPlayer.getInventory();
-            controlledInventory.replaceWith(player.getInventory());
+            controlledPlayer.getInventory().replaceWith(player.getInventory());
         }
 
-        // Teleporta o jogador para dentro da entidade
-        player.teleportTo(targetedEntity.getX(), targetedEntity.getY(), targetedEntity.getZ());
+        // Torna o jogador invisível e imóvel
+        player.setInvisible(true);
+        player.setNoGravity(true); // Impede que o jogador caia ou se mova
+        player.setInvulnerable(true); // Torna o jogador invulnerável
 
-        // Torna a entidade invisível
-        targetedEntity.setInvisible(true);
+        // Permite que o jogador voe (para evitar quedas)
+        player.getAbilities().mayfly = true;
+        player.getAbilities().flying = true;
+        player.onUpdateAbilities();
+
+        // Torna a entidade controlada visível
+        targetedEntity.setInvisible(false);
 
         // Controla a nova entidade
         controllingPlayers.put(player.getUUID(), targetedEntity);
         player.sendSystemMessage(Component.literal("Agora está a controlar a entidade: " + targetedEntity.getName().getString()));
+
+        // Define a visão do jogador para a entidade controlada
+        player.setCamera(targetedEntity);
+
         return Command.SINGLE_SUCCESS;
     }
 
@@ -110,14 +129,35 @@ public class ControlCommand {
             playerInventories.remove(player.getUUID());
         }
 
-        // Restaura a visibilidade da entidade
+        // Restaura o inventário da entidade controlada
         Entity controlledEntity = controllingPlayers.get(player.getUUID());
+        if (controlledEntity instanceof Player && controlledInventories.containsKey(player.getUUID())) {
+            Player controlledPlayer = (Player) controlledEntity;
+            controlledPlayer.getInventory().replaceWith(controlledInventories.get(player.getUUID()));
+            controlledInventories.remove(player.getUUID());
+        }
+
+        // Restaura a visibilidade e mobilidade do jogador
+        player.setInvisible(false);
+        player.setNoGravity(false);
+        player.setInvulnerable(false); // Remove a invulnerabilidade
+
+        // Desativa o voo do jogador
+        player.getAbilities().mayfly = false;
+        player.getAbilities().flying = false;
+        player.onUpdateAbilities();
+
+        // Restaura a visibilidade da entidade controlada
         if (controlledEntity != null) {
             controlledEntity.setInvisible(false);
         }
 
         // Retira o controle da entidade
         controllingPlayers.remove(player.getUUID());
+
+        // Restaura a visão do jogador para ele mesmo
+        player.setCamera(player);
+
         player.sendSystemMessage(Component.literal("Saiu do controlo da entidade."));
 
         return Command.SINGLE_SUCCESS;
@@ -149,6 +189,37 @@ public class ControlCommand {
                 // Sincroniza o movimento da entidade
                 Vec3 movement = new Vec3(player.xxa, player.yya, player.zza);
                 controlledEntity.setDeltaMovement(movement.scale(0.5)); // Ajusta a velocidade da entidade
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onAttackEntity(AttackEntityEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+
+            // Verifica se o jogador está controlando uma entidade
+            if (controllingPlayers.containsKey(player.getUUID())) {
+                Entity controlledEntity = controllingPlayers.get(player.getUUID());
+
+                // Impede que o jogador ataque a entidade controlada
+                if (event.getTarget().equals(controlledEntity)) {
+                    event.setCanceled(true); // Cancela o ataque
+                    player.sendSystemMessage(Component.literal("Você não pode atacar a entidade que está controlando."));
+                }
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onLivingAttack(LivingAttackEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+
+            // Verifica se o jogador está controlando uma entidade
+            if (controllingPlayers.containsKey(player.getUUID())) {
+                // Cancela o dano ao jogador
+                event.setCanceled(true);
             }
         }
     }
