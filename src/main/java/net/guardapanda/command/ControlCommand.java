@@ -7,6 +7,8 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -21,17 +23,13 @@ import java.util.UUID;
 public class ControlCommand {
 
     private static final Map<UUID, Entity> controllingPlayers = new HashMap<>();
-    private static final Map<UUID, Integer> previousEntityIds = new HashMap<>();
-
-
-
+    private static final Map<UUID, Inventory> playerInventories = new HashMap<>();
+    private static final Map<UUID, Vec3> playerOriginalPositions = new HashMap<>();
 
     @SubscribeEvent
     public static void registerCommand(RegisterCommandsEvent event) {
         event.getDispatcher().register(
             Commands.literal("control")
-			    .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
-
                 .then(Commands.literal("on")
                     .executes(context -> enableControl(context)))
                 .then(Commands.literal("off")
@@ -56,8 +54,24 @@ public class ControlCommand {
             return Command.SINGLE_SUCCESS;
         }
 
-        // Salva o ID da entidade anterior
-        previousEntityIds.put(player.getUUID(), targetedEntity.getId());
+        // Salva a posição original do jogador
+        playerOriginalPositions.put(player.getUUID(), player.position());
+
+        // Salva o inventário do jogador
+        playerInventories.put(player.getUUID(), player.getInventory());
+
+        // Transfere o inventário do jogador para a entidade controlada
+        if (targetedEntity instanceof Player) {
+            Player controlledPlayer = (Player) targetedEntity;
+            Inventory controlledInventory = controlledPlayer.getInventory();
+            controlledInventory.replaceWith(player.getInventory());
+        }
+
+        // Teleporta o jogador para dentro da entidade
+        player.teleportTo(targetedEntity.getX(), targetedEntity.getY(), targetedEntity.getZ());
+
+        // Torna a entidade invisível
+        targetedEntity.setInvisible(true);
 
         // Controla a nova entidade
         controllingPlayers.put(player.getUUID(), targetedEntity);
@@ -81,19 +95,28 @@ public class ControlCommand {
             return Command.SINGLE_SUCCESS;
         }
 
-        // Retira o controle da entidade e retorna ao controle do jogador
+        // Restaura a posição original do jogador
+        if (playerOriginalPositions.containsKey(player.getUUID())) {
+            Vec3 originalPosition = playerOriginalPositions.get(player.getUUID());
+            player.teleportTo(originalPosition.x, originalPosition.y, originalPosition.z);
+            playerOriginalPositions.remove(player.getUUID());
+        }
+
+        // Retorna o inventário ao jogador
+        if (playerInventories.containsKey(player.getUUID())) {
+            player.getInventory().replaceWith(playerInventories.get(player.getUUID()));
+            playerInventories.remove(player.getUUID());
+        }
+
+        // Restaura a visibilidade da entidade
+        Entity controlledEntity = controllingPlayers.get(player.getUUID());
+        if (controlledEntity != null) {
+            controlledEntity.setInvisible(false);
+        }
+
+        // Retira o controle da entidade
         controllingPlayers.remove(player.getUUID());
         player.sendSystemMessage(Component.literal("Saiu do controlo da entidade."));
-
-        // Se o jogador estava controlando outra entidade anteriormente, retorna ao jogador
-        if (previousEntityIds.containsKey(player.getUUID())) {
-            int previousEntityId = previousEntityIds.get(player.getUUID());
-            Entity previousEntity = player.getCommandSenderWorld().getEntity(previousEntityId);
-            if (previousEntity != null) {
-                controllingPlayers.put(player.getUUID(), previousEntity);
-                player.sendSystemMessage(Component.literal("Agora está a controlar a entidade anterior."));
-            }
-        }
 
         return Command.SINGLE_SUCCESS;
     }
@@ -117,11 +140,13 @@ public class ControlCommand {
                 }
 
                 // Sincroniza a posição, rotação e movimentos da entidade controlada com o jogador
-                Vec3 movement = new Vec3(player.zza, player.yya, player.xxa);
-                controlledEntity.setDeltaMovement(movement.scale(0.5)); // Ajusta a velocidade da entidade
                 controlledEntity.setYRot(player.getYRot());
                 controlledEntity.setXRot(player.getXRot());
                 controlledEntity.setPos(player.getX(), player.getY(), player.getZ());
+
+                // Sincroniza o movimento da entidade
+                Vec3 movement = new Vec3(player.xxa, player.yya, player.zza);
+                controlledEntity.setDeltaMovement(movement.scale(0.5)); // Ajusta a velocidade da entidade
             }
         }
     }
