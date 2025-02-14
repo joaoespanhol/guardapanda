@@ -3,14 +3,19 @@ package net.guardapanda.command;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.server.ServerLifecycleHooks;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
-
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundTabListPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.network.chat.Component;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.CommandSourceStack;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
+import net.minecraft.world.level.GameType;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -53,6 +58,40 @@ public class TabCommand {
             }
         }
     }
+
+    @SubscribeEvent
+    public static void onRegisterCommands(RegisterCommandsEvent event) {
+        CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
+        dispatcher.register(
+            Commands.literal("vanish")
+                .then(Commands.argument("state", BoolArgumentType.bool())
+                    .executes(context -> {
+                        boolean state = BoolArgumentType.getBool(context, "state");
+                        ServerPlayer player = context.getSource().getPlayerOrException();
+                        setVanish(player, state);
+                        return 1;
+                    })
+                )
+        );
+    }
+
+	
+	@SubscribeEvent
+	public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
+	    if (event.getEntity() instanceof ServerPlayer) {
+	        ServerPlayer player = (ServerPlayer) event.getEntity();
+	        // Atualiza a visibilidade do jogador ao mudar de modo
+	        if (event.getNewGameMode() == GameType.SURVIVAL) {
+	            // Se o jogador voltar para o Survival, força a atualização da visibilidade
+	            updatePlayerVisibility(player);
+	        } else if (event.getNewGameMode() == GameType.SPECTATOR) {
+	            // Se o jogador entrar no modo Spectator, oculta-o da TabList
+	            hidePlayerFromTabList(player);
+	        }
+	    }
+}
+
+
 
     private static void createDefaultConfigFileIfNotExists() {
         File configFile = new File(CONFIG_FILE_PATH);
@@ -138,29 +177,62 @@ public class TabCommand {
     }
 
     private static boolean isVanished(ServerPlayer player) {
-        // Verifica se o jogador está em vanish (depende da implementação do seu sistema de vanish)
-        // Exemplo genérico:
+        // Verifica se o jogador está em vanish
         return player.getPersistentData().getBoolean("vanished");
     }
 
-	private static void hideVanishedAndSpectatorPlayers() {
-	    if (ServerLifecycleHooks.getCurrentServer() != null) {
-	        for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-	            if (isVanished(player) || player.isSpectator()) { // Só remove se estiver em Vanish ou Espectador
-	                for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-	                    if (!otherPlayer.getUUID().equals(player.getUUID())) {
-	                        // Removendo apenas da visão dos outros jogadores
-	                        otherPlayer.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(player.getUUID())));
-	                    }
-	                }
-	            } else {
-	                // Garante que o jogador apareça na TabList se não estiver em Vanish ou Espectador
-	                for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-						otherPlayer.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(otherPlayer)));
+    private static void hideVanishedAndSpectatorPlayers() {
+        if (ServerLifecycleHooks.getCurrentServer() != null) {
+            for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+                if (isVanished(player) || player.isSpectator()) {
+                    // Remove o jogador da TabList dos outros jogadores
+                    hidePlayerFromTabList(player);
+                } else {
+                    // Atualiza a visibilidade do jogador na TabList se não estiver em Vanish ou Spectator
+                    updatePlayerVisibility(player);
+                }
+            }
+        }
+    }
 
-	                }
-	            }
-	        }
-	    }
-	}
+    private static void hidePlayerFromTabList(ServerPlayer player) {
+        if (ServerLifecycleHooks.getCurrentServer() != null) {
+            for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+                if (!otherPlayer.getUUID().equals(player.getUUID())) {
+                    otherPlayer.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(player.getUUID())));
+                }
+            }
+        }
+    }
+
+    private static void updatePlayerVisibility(ServerPlayer player) {
+        if (ServerLifecycleHooks.getCurrentServer() != null) {
+            for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+                if (!otherPlayer.getUUID().equals(player.getUUID())) {
+                    // Remove o jogador da TabList dos outros jogadores
+                    otherPlayer.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(player.getUUID())));
+                    // Adiciona o jogador de volta à TabList dos outros jogadores
+                    otherPlayer.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(player)));
+                }
+            }
+        }
+    }
+
+    private static void setVanish(ServerPlayer player, boolean state) {
+        // Define o estado de vanish no jogador
+        player.getPersistentData().putBoolean("vanished", state);
+
+        // Atualiza a visibilidade do jogador na TabList
+        if (state) {
+            // Oculta o jogador da TabList
+            hidePlayerFromTabList(player);
+            player.setGameMode(GameType.SURVIVAL); // Opcional: muda para modo Espectador
+            player.sendSystemMessage(Component.literal("§aVocê está agora invisível."));
+        } else {
+            // Mostra o jogador na TabList
+            updatePlayerVisibility(player);
+            player.setGameMode(GameType.SURVIVAL); // Volta ao modo Survival
+            player.sendSystemMessage(Component.literal("§aVocê está agora visível."));
+        }
+    }
 }
