@@ -12,6 +12,7 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.event.ServerChatEvent; // Novo import
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -53,6 +54,7 @@ public class WebhookCommand {
                 webhooks.addProperty("death", "https://discord.com/api/webhooks/SEU_WEBHOOK_MORTES");
                 webhooks.addProperty("join_leave", "https://discord.com/api/webhooks/SEU_WEBHOOK_ENTRADA_SAIDA");
                 webhooks.addProperty("bans_kicks", "https://discord.com/api/webhooks/SEU_WEBHOOK_BANIMENTOS_KICKS");
+                webhooks.addProperty("chat", "https://discord.com/api/webhooks/SEU_WEBHOOK_CHAT"); // Novo webhook para o chat
                 config.add("webhooks", webhooks);
 
                 JsonObject commands = new JsonObject();
@@ -168,6 +170,17 @@ public class WebhookCommand {
         }
     }
 
+    // Evento de mensagem no chat
+    @SubscribeEvent
+    public static void onServerChat(ServerChatEvent event) {
+        String playerName = event.getPlayer().getName().getString();
+        String message = event.getMessage().getString(); // Converte Component para String
+        String timestamp = DATE_FORMAT.format(new Date());
+
+        // Envia a mensagem do chat para o Discord
+        sendChatToDiscord(playerName, message, timestamp);
+    }
+
     // Envia mensagem de morte para o Discord
     private static void sendDeathToDiscord(String playerName, String killerName, String deathReason, String timestamp) {
         if (config != null && config.has("webhooks")) {
@@ -214,6 +227,32 @@ public class WebhookCommand {
                 sendToDiscord(webhookUrl, message);
             } else {
                 System.out.println("[ERRO] Chave 'join_leave' não encontrada no arquivo de configuração.");
+            }
+        } else {
+            System.out.println("[ERRO] Arquivo de configuração não carregado ou chave 'webhooks' não encontrada.");
+        }
+    }
+
+    // Envia mensagem do chat para o Discord
+    private static void sendChatToDiscord(String playerName, String message, String timestamp) {
+        if (config != null && config.has("webhooks")) {
+            JsonObject webhooks = config.getAsJsonObject("webhooks");
+
+            if (webhooks.has("chat")) {
+                String webhookUrl = webhooks.get("chat").getAsString();
+
+                // Formata a mensagem
+                String formattedMessage = String.format(
+                    "**Jogador:** %s\n" +
+                    "**Mensagem:** %s\n" +
+                    "**Data e hora:** %s",
+                    playerName, message, timestamp
+                );
+
+                // Envia a mensagem para o Discord
+                sendToDiscord(webhookUrl, formattedMessage);
+            } else {
+                System.out.println("[ERRO] Chave 'chat' não encontrada no arquivo de configuração.");
             }
         } else {
             System.out.println("[ERRO] Arquivo de configuração não carregado ou chave 'webhooks' não encontrada.");
