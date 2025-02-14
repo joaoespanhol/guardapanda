@@ -31,7 +31,7 @@ public class TabCommand {
 
     // Contador para controlar o intervalo da atualização
     private static int updateTickCounter = 0;
-    private static final int UPDATE_INTERVAL = 50;
+    private static final int UPDATE_INTERVAL = 0;
 
     // Caminho do arquivo de configuração
     private static final String CONFIG_FILE_PATH = "config/tablist_config.txt";
@@ -137,7 +137,6 @@ public class TabCommand {
             header = Component.literal(headerText);
             footer = Component.literal(footerText);
 
-            System.out.println("[INFO] Frases da TabList carregadas com sucesso.");
         } catch (IOException e) {
             System.err.println("[ERRO] Falha ao ler o arquivo de configuração: " + CONFIG_FILE_PATH);
             e.printStackTrace();
