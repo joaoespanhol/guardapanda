@@ -5,9 +5,11 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundTabListPacket;
+import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
 import net.minecraft.network.chat.Component;
 
 import java.io.File;
@@ -46,6 +48,7 @@ public class TabCommand {
             if (updateTickCounter >= UPDATE_INTERVAL) {
                 loadTabListComponents(); // Recarrega as frases do arquivo de configuração
                 updateTabListForAllPlayers();
+                hideVanishedAndSpectatorPlayers();
                 updateTickCounter = 0; // Reinicia o contador
             }
         }
@@ -61,7 +64,7 @@ public class TabCommand {
                     writer.write("# Edite as frases abaixo para personalizar o cabeçalho e rodapé da TabList.\n");
                     writer.write("# Use \\n para quebras de linha.\n");
                     writer.write("header=§6HSMP\\n§e>> Bem-vindo <<\n");
-                    writer.write("footer=§bJogadores Online: §a%online_players%\\n§bDiscord Link: §9https://discord.gg/gYnf4rZUHK\n");
+                    writer.write("footer=§bJogadores Online: §a%online_players%\\n§bStaff Online: §c%staff_count%\\n§bDiscord Link: §9https://discord.gg/gYnf4rZUHK\n");
                 }
                 System.out.println("[INFO] Arquivo de configuração criado: " + CONFIG_FILE_PATH);
             } catch (IOException e) {
@@ -112,23 +115,52 @@ public class TabCommand {
     }
 
     private static int getOnlinePlayerCount() {
-        // Obtém o número de jogadores online usando a instância do servidor
+        // Obtém o número de jogadores online, excluindo jogadores em vanish ou spectator
         if (ServerLifecycleHooks.getCurrentServer() != null) {
-            return ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers().size();
+            return (int) ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers().stream()
+                    .filter(player -> !isVanished(player) && !player.isSpectator())
+                    .count();
         }
         return 0; // Retorna 0 se o servidor ainda não estiver disponível
     }
 
     private static int getStaffCount() {
-        // Obtém o número de jogadores com permissão de staff
+        // Obtém o número de jogadores com permissão de staff, excluindo jogadores em vanish ou spectator
         int staffCount = 0;
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-                if (player.hasPermissions(4)) { // Assumindo que 4 é o nível de permissão de staff
+                if (player.hasPermissions(4) && !isVanished(player) && !player.isSpectator()) {
                     staffCount++;
                 }
             }
         }
         return staffCount;
     }
+
+    private static boolean isVanished(ServerPlayer player) {
+        // Verifica se o jogador está em vanish (depende da implementação do seu sistema de vanish)
+        // Exemplo genérico:
+        return player.getPersistentData().getBoolean("vanished");
+    }
+
+	private static void hideVanishedAndSpectatorPlayers() {
+	    if (ServerLifecycleHooks.getCurrentServer() != null) {
+	        for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+	            if (isVanished(player) || player.isSpectator()) { // Só remove se estiver em Vanish ou Espectador
+	                for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+	                    if (!otherPlayer.getUUID().equals(player.getUUID())) {
+	                        // Removendo apenas da visão dos outros jogadores
+	                        otherPlayer.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(player.getUUID())));
+	                    }
+	                }
+	            } else {
+	                // Garante que o jogador apareça na TabList se não estiver em Vanish ou Espectador
+	                for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+						otherPlayer.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(otherPlayer)));
+
+	                }
+	            }
+	        }
+	    }
+	}
 }

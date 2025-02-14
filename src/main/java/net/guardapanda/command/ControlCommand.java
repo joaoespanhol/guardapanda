@@ -26,16 +26,18 @@ public class ControlCommand {
     private static final Map<UUID, Inventory> playerInventories = new HashMap<>();
     private static final Map<UUID, Vec3> playerOriginalPositions = new HashMap<>();
 
-    @SubscribeEvent
-    public static void registerCommand(RegisterCommandsEvent event) {
-        event.getDispatcher().register(
-            Commands.literal("control")
-                .then(Commands.literal("on")
-                    .executes(context -> enableControl(context)))
-                .then(Commands.literal("off")
-                    .executes(context -> disableControl(context)))
-        );
-    }
+	@SubscribeEvent
+	public static void registerCommand(RegisterCommandsEvent event) {
+	    event.getDispatcher().register(
+	        Commands.literal("control")
+	            .requires(source -> source.hasPermission(2)) // Nível de permissão 2 (OP)
+	            .then(Commands.literal("on")
+	                .executes(context -> enableControl(context)))
+	            .then(Commands.literal("off")
+	                .executes(context -> disableControl(context)))
+	    );
+	}
+
 
     private static int enableControl(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
