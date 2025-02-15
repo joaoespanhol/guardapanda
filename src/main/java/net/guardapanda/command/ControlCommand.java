@@ -7,9 +7,6 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.TickEvent;
@@ -26,8 +23,6 @@ import java.util.UUID;
 public class ControlCommand {
 
     private static final Map<UUID, Entity> controllingPlayers = new HashMap<>();
-    private static final Map<UUID, Inventory> playerInventories = new HashMap<>();
-    private static final Map<UUID, Inventory> controlledInventories = new HashMap<>();
     private static final Map<UUID, Vec3> playerOriginalPositions = new HashMap<>();
 
     @SubscribeEvent
@@ -61,21 +56,6 @@ public class ControlCommand {
 
         // Salva a posição original do jogador
         playerOriginalPositions.put(player.getUUID(), player.position());
-
-        // Salva o inventário do jogador
-        playerInventories.put(player.getUUID(), player.getInventory());
-
-        // Salva o inventário da entidade controlada
-        if (targetedEntity instanceof Player) {
-            Player controlledPlayer = (Player) targetedEntity;
-            controlledInventories.put(player.getUUID(), controlledPlayer.getInventory());
-        }
-
-        // Transfere o inventário do jogador para a entidade controlada
-        if (targetedEntity instanceof Player) {
-            Player controlledPlayer = (Player) targetedEntity;
-            controlledPlayer.getInventory().replaceWith(player.getInventory());
-        }
 
         // Torna o jogador invisível e imóvel
         player.setInvisible(true);
@@ -123,20 +103,6 @@ public class ControlCommand {
             playerOriginalPositions.remove(player.getUUID());
         }
 
-        // Retorna o inventário ao jogador
-        if (playerInventories.containsKey(player.getUUID())) {
-            player.getInventory().replaceWith(playerInventories.get(player.getUUID()));
-            playerInventories.remove(player.getUUID());
-        }
-
-        // Restaura o inventário da entidade controlada
-        Entity controlledEntity = controllingPlayers.get(player.getUUID());
-        if (controlledEntity instanceof Player && controlledInventories.containsKey(player.getUUID())) {
-            Player controlledPlayer = (Player) controlledEntity;
-            controlledPlayer.getInventory().replaceWith(controlledInventories.get(player.getUUID()));
-            controlledInventories.remove(player.getUUID());
-        }
-
         // Restaura a visibilidade e mobilidade do jogador
         player.setInvisible(false);
         player.setNoGravity(false);
@@ -148,6 +114,7 @@ public class ControlCommand {
         player.onUpdateAbilities();
 
         // Restaura a visibilidade da entidade controlada
+        Entity controlledEntity = controllingPlayers.get(player.getUUID());
         if (controlledEntity != null) {
             controlledEntity.setInvisible(false);
         }

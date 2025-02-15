@@ -10,6 +10,8 @@ import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundTabListPacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundAddPlayerPacket;
 import net.minecraft.network.chat.Component;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
@@ -31,7 +33,11 @@ public class TabCommand {
 
     // Contador para controlar o intervalo da atualização
     private static int updateTickCounter = 0;
-    private static final int UPDATE_INTERVAL = 0;
+    private static final int UPDATE_INTERVAL = 50;
+
+    // Contador personalizado para atualizações rápidas
+    private static int customUpdateDelay = 0;
+    private static final int CUSTOM_UPDATE_INTERVAL = 10; // 10 ticks = 0.5 segundos
 
     // Caminho do arquivo de configuração
     private static final String CONFIG_FILE_PATH = "config/tablist_config.txt";
@@ -48,6 +54,7 @@ public class TabCommand {
         // Incrementa o contador a cada tick
         if (event.phase == TickEvent.Phase.END) {
             updateTickCounter++;
+            customUpdateDelay++;
 
             // Atualiza a TabList a cada "UPDATE_INTERVAL" ticks
             if (updateTickCounter >= UPDATE_INTERVAL) {
@@ -55,6 +62,12 @@ public class TabCommand {
                 updateTabListForAllPlayers();
                 hideVanishedAndSpectatorPlayers();
                 updateTickCounter = 0; // Reinicia o contador
+            }
+
+            // Atualiza a visibilidade dos jogadores a cada "CUSTOM_UPDATE_INTERVAL" ticks
+            if (customUpdateDelay >= CUSTOM_UPDATE_INTERVAL) {
+                hideVanishedAndSpectatorPlayers();
+                customUpdateDelay = 0;
             }
         }
     }
@@ -75,23 +88,15 @@ public class TabCommand {
         );
     }
 
-	
-	@SubscribeEvent
-	public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
-	    if (event.getEntity() instanceof ServerPlayer) {
-	        ServerPlayer player = (ServerPlayer) event.getEntity();
-	        // Atualiza a visibilidade do jogador ao mudar de modo
-	        if (event.getNewGameMode() == GameType.SURVIVAL) {
-	            // Se o jogador voltar para o Survival, força a atualização da visibilidade
-	            updatePlayerVisibility(player);
-	        } else if (event.getNewGameMode() == GameType.SPECTATOR) {
-	            // Se o jogador entrar no modo Spectator, oculta-o da TabList
-	            hidePlayerFromTabList(player);
-	        }
-	    }
-}
-
-
+    @SubscribeEvent
+    public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+            // Força a atualização da visibilidade do jogador imediatamente
+            updatePlayerVisibility(player);
+            hideVanishedAndSpectatorPlayers();
+        }
+    }
 
     private static void createDefaultConfigFileIfNotExists() {
         File configFile = new File(CONFIG_FILE_PATH);
@@ -137,6 +142,7 @@ public class TabCommand {
             header = Component.literal(headerText);
             footer = Component.literal(footerText);
 
+            System.out.println("[INFO] Frases da TabList carregadas com sucesso.");
         } catch (IOException e) {
             System.err.println("[ERRO] Falha ao ler o arquivo de configuração: " + CONFIG_FILE_PATH);
             e.printStackTrace();
@@ -184,10 +190,11 @@ public class TabCommand {
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
                 if (isVanished(player) || player.isSpectator()) {
-                    // Remove o jogador da TabList dos outros jogadores
+                    // Remove o jogador da TabList e do mundo
                     hidePlayerFromTabList(player);
+                    hidePlayerInWorld(player);
                 } else {
-                    // Atualiza a visibilidade do jogador na TabList se não estiver em Vanish ou Spectator
+                    // Atualiza a visibilidade do jogador na TabList e no mundo se não estiver em Vanish ou Spectator
                     updatePlayerVisibility(player);
                 }
             }
@@ -204,14 +211,25 @@ public class TabCommand {
         }
     }
 
+    private static void hidePlayerInWorld(ServerPlayer player) {
+        if (ServerLifecycleHooks.getCurrentServer() != null) {
+            for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
+                if (!otherPlayer.getUUID().equals(player.getUUID())) {
+                    // Remove o jogador da lista de entidades visíveis para outros jogadores
+                    otherPlayer.connection.send(new ClientboundRemoveEntitiesPacket(player.getId()));
+                }
+            }
+        }
+    }
+
     private static void updatePlayerVisibility(ServerPlayer player) {
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             for (ServerPlayer otherPlayer : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
                 if (!otherPlayer.getUUID().equals(player.getUUID())) {
-                    // Remove o jogador da TabList dos outros jogadores
+                    // Atualiza a visibilidade do jogador para outros jogadores
                     otherPlayer.connection.send(new ClientboundPlayerInfoRemovePacket(List.of(player.getUUID())));
-                    // Adiciona o jogador de volta à TabList dos outros jogadores
                     otherPlayer.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(player)));
+                    otherPlayer.connection.send(new ClientboundAddPlayerPacket(player));
                 }
             }
         }
@@ -221,14 +239,15 @@ public class TabCommand {
         // Define o estado de vanish no jogador
         player.getPersistentData().putBoolean("vanished", state);
 
-        // Atualiza a visibilidade do jogador na TabList
+        // Atualiza a visibilidade do jogador na TabList e no mundo
         if (state) {
-            // Oculta o jogador da TabList
+            // Oculta o jogador da TabList e do mundo
             hidePlayerFromTabList(player);
-            player.setGameMode(GameType.SURVIVAL); // Opcional: muda para modo Espectador
+            hidePlayerInWorld(player);
+            player.setGameMode(GameType.SPECTATOR); // Muda para modo Espectador
             player.sendSystemMessage(Component.literal("§aVocê está agora invisível."));
         } else {
-            // Mostra o jogador na TabList
+            // Mostra o jogador na TabList e no mundo
             updatePlayerVisibility(player);
             player.setGameMode(GameType.SURVIVAL); // Volta ao modo Survival
             player.sendSystemMessage(Component.literal("§aVocê está agora visível."));
