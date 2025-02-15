@@ -209,7 +209,7 @@ public class WebhookCommand {
     }
 
     private static void sendServerStatusToDiscord(String status, String timestamp) {
-        sendToWebhook("server_status", String.format("**Servidor %s**\n**Data e hora:** %s", status, timestamp));
+        sendToWebhook("server_status", String.format("**Servidor %s:**\n**Data e hora:** %s", status, timestamp));
     }
 
     private static void sendToWebhook(String key, String message) {
