@@ -1,4 +1,3 @@
-package net.guardapanda.command;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -6,13 +5,20 @@ import com.google.gson.JsonObject;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.entity.SignBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.SignBlock;
+import net.minecraft.core.BlockPos;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.CommandEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
+import net.minecraftforge.event.server.ServerStartedEvent; // Novo evento adicionado
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.event.ServerChatEvent;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.event.TickEvent;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -24,6 +30,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
 
 @Mod.EventBusSubscriber(modid = "guardapanda", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class WebhookCommand {
@@ -32,10 +40,17 @@ public class WebhookCommand {
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
 
     private static JsonObject config;
+    private static final Map<BlockPos, SignData> signContents = new HashMap<>(); // Armazena o conteúdo das placas e o nome do jogador
 
     @SubscribeEvent
     public static void onServerStarting(ServerStartingEvent event) {
         loadConfig();
+    }
+
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        String timestamp = DATE_FORMAT.format(new Date());
+        sendServerStatusToDiscord("ligado", timestamp);
     }
 
     private static void loadConfig() {
@@ -44,12 +59,13 @@ public class WebhookCommand {
                 config = new Gson().fromJson(new FileReader(CONFIG_PATH.toFile()), JsonObject.class);
             } else {
                 config = new JsonObject();
-
                 JsonObject webhooks = new JsonObject();
                 webhooks.addProperty("death", "https://discord.com/api/webhooks/SEU_WEBHOOK_MORTES");
                 webhooks.addProperty("join_leave", "https://discord.com/api/webhooks/SEU_WEBHOOK_ENTRADA_SAIDA");
                 webhooks.addProperty("bans_kicks", "https://discord.com/api/webhooks/SEU_WEBHOOK_BANIMENTOS_KICKS");
                 webhooks.addProperty("chat", "https://discord.com/api/webhooks/SEU_WEBHOOK_CHAT");
+                webhooks.addProperty("sign", "https://discord.com/api/webhooks/SEU_WEBHOOK_PLACAS");
+                webhooks.addProperty("server_status", "https://discord.com/api/webhooks/SEU_WEBHOOK_STATUS_SERVIDOR"); // Novo webhook adicionado
                 config.add("webhooks", webhooks);
 
                 JsonObject commands = new JsonObject();
@@ -60,14 +76,10 @@ public class WebhookCommand {
                 config.add("commands", commands);
 
                 Files.createDirectories(CONFIG_PATH.getParent());
-
                 Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                String json = gson.toJson(config);
-
-                Files.writeString(CONFIG_PATH, json);
+                Files.writeString(CONFIG_PATH, gson.toJson(config));
             }
         } catch (IOException e) {
-            System.out.println("[ERRO] Erro ao carregar ou criar o arquivo de configuração:");
             e.printStackTrace();
         }
     }
@@ -85,7 +97,6 @@ public class WebhookCommand {
             }
 
             String timestamp = DATE_FORMAT.format(new Date());
-
             sendDeathToDiscord(playerName, killerName, deathReason, timestamp);
         }
     }
@@ -95,7 +106,6 @@ public class WebhookCommand {
         if (event.getEntity() instanceof ServerPlayer player) {
             String playerName = player.getName().getString();
             String timestamp = DATE_FORMAT.format(new Date());
-
             sendJoinLeaveToDiscord(playerName, "entrou", timestamp);
         }
     }
@@ -105,7 +115,6 @@ public class WebhookCommand {
         if (event.getEntity() instanceof ServerPlayer player) {
             String playerName = player.getName().getString();
             String timestamp = DATE_FORMAT.format(new Date());
-
             sendJoinLeaveToDiscord(playerName, "saiu", timestamp);
         }
     }
@@ -114,8 +123,8 @@ public class WebhookCommand {
     public static void onCommandExecution(CommandEvent event) {
         String command = event.getParseResults().getReader().getString();
         var source = event.getParseResults().getContext().getSource();
-
         String executorName = "Console";
+
         if (source.getEntity() instanceof ServerPlayer player) {
             executorName = player.getDisplayName().getString();
         }
@@ -127,14 +136,7 @@ public class WebhookCommand {
 
             if (commands.has(commandName)) {
                 String webhookUrl = commands.get(commandName).getAsString();
-
-                String message = String.format(
-                    "**Comando executado:**\n" +
-                    "> **Executado por:** %s\n" +
-                    "> **Comando:** %s",
-                    executorName, command
-                );
-
+                String message = String.format("**Comando executado:**\n> **Executado por:** %s\n> **Comando:** %s", executorName, command);
                 sendToDiscord(webhookUrl, message);
             }
         }
@@ -145,94 +147,118 @@ public class WebhookCommand {
         String playerName = event.getPlayer().getName().getString();
         String message = event.getMessage().getString();
         String timestamp = DATE_FORMAT.format(new Date());
-
         sendChatToDiscord(playerName, message, timestamp);
     }
 
-    private static void sendDeathToDiscord(String playerName, String killerName, String deathReason, String timestamp) {
-        if (config != null && config.has("webhooks")) {
-            JsonObject webhooks = config.getAsJsonObject("webhooks");
-
-            if (webhooks.has("death")) {
-                String webhookUrl = webhooks.get("death").getAsString();
-
-                String message = String.format(
-                    "**Jogador que morreu:** %s\n" +
-                    "**Entidade matou:** %s\n" +
-                    "**Motivo da morte:** %s\n" +
-                    "**Data e hora da morte:** %s",
-                    playerName, killerName, deathReason, timestamp
-                );
-
-                sendToDiscord(webhookUrl, message);
+    @SubscribeEvent
+    public static void onSignPlaced(BlockEvent.EntityPlaceEvent event) {
+        if (event.getPlacedBlock().getBlock() instanceof SignBlock) {
+            if (event.getEntity() instanceof ServerPlayer player) {
+                BlockEntity blockEntity = event.getLevel().getBlockEntity(event.getPos());
+                if (blockEntity instanceof SignBlockEntity signBlockEntity) {
+                    // Armazena a posição da placa e o nome do jogador para verificação posterior
+                    signContents.put(event.getPos(), new SignData(player.getName().getString(), ""));
+                }
             }
         }
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) {
+            // Verifica o conteúdo das placas periodicamente
+            for (Map.Entry<BlockPos, SignData> entry : signContents.entrySet()) {
+                BlockPos pos = entry.getKey();
+                BlockEntity blockEntity = event.getServer().overworld().getBlockEntity(pos);
+                if (blockEntity instanceof SignBlockEntity signBlockEntity) {
+                    String[] signText = new String[4];
+                    for (int i = 0; i < 4; i++) {
+                        signText[i] = signBlockEntity.getFrontText().getMessage(i, false).getString();
+                    }
+
+                    String currentContent = String.join("\n", signText);
+                    String previousContent = entry.getValue().getContent();
+
+                    // Se o conteúdo da placa mudou, envia para o Discord
+                    if (!currentContent.equals(previousContent)) {
+                        signContents.put(pos, new SignData(entry.getValue().getPlayerName(), currentContent)); // Atualiza o conteúdo armazenado
+                        if (!currentContent.trim().isEmpty()) { // Evita enviar placas vazias
+                            String timestamp = DATE_FORMAT.format(new Date());
+                            sendSignToDiscord(entry.getValue().getPlayerName(), pos.getX(), pos.getY(), pos.getZ(), currentContent, timestamp);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void sendDeathToDiscord(String playerName, String killerName, String deathReason, String timestamp) {
+        sendToWebhook("death", String.format("**Jogador que morreu:** %s\n**Entidade matou:** %s\n**Motivo da morte:** %s\n**Data e hora:** %s", playerName, killerName, deathReason, timestamp));
     }
 
     private static void sendJoinLeaveToDiscord(String playerName, String action, String timestamp) {
-        if (config != null && config.has("webhooks")) {
-            JsonObject webhooks = config.getAsJsonObject("webhooks");
-
-            if (webhooks.has("join_leave")) {
-                String webhookUrl = webhooks.get("join_leave").getAsString();
-
-                String message = String.format(
-                    "**Jogador %s:** %s\n" +
-                    "**Data e hora:** %s",
-                    action, playerName, timestamp
-                );
-
-                sendToDiscord(webhookUrl, message);
-            }
-        }
+        sendToWebhook("join_leave", String.format("**Jogador %s:** %s\n**Data e hora:** %s", action, playerName, timestamp));
     }
 
     private static void sendChatToDiscord(String playerName, String message, String timestamp) {
+        sendToWebhook("chat", String.format("**Jogador:** %s\n**Mensagem:** %s\n**Data e hora:** %s", playerName, message, timestamp));
+    }
+
+    private static void sendSignToDiscord(String playerName, int x, int y, int z, String signContent, String timestamp) {
+        sendToWebhook("sign", String.format("**Jogador:** %s\n**Localização:** %d, %d, %d\n**Conteúdo da placa:**\n%s\n**Data e hora:** %s", playerName, x, y, z, signContent, timestamp));
+    }
+
+    private static void sendServerStatusToDiscord(String status, String timestamp) {
+        sendToWebhook("server_status", String.format("**Servidor %s:**\n**Data e hora:** %s", status, timestamp));
+    }
+
+    private static void sendToWebhook(String key, String message) {
         if (config != null && config.has("webhooks")) {
             JsonObject webhooks = config.getAsJsonObject("webhooks");
 
-            if (webhooks.has("chat")) {
-                String webhookUrl = webhooks.get("chat").getAsString();
-
-                String formattedMessage = String.format(
-                    "**Jogador:** %s\n" +
-                    "**Mensagem:** %s\n" +
-                    "**Data e hora:** %s",
-                    playerName, message, timestamp
-                );
-
-                sendToDiscord(webhookUrl, formattedMessage);
+            if (webhooks.has(key)) {
+                sendToDiscord(webhooks.get(key).getAsString(), message);
             }
         }
     }
 
     private static void sendToDiscord(String webhookUrl, String message) {
         try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(webhookUrl).openConnection();
+            URL url = new URL(webhookUrl);
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
 
-            String jsonPayload = String.format("{\"content\": \"%s\"}", message.replace("\n", "\\n"));
+            JsonObject json = new JsonObject();
+            json.addProperty("content", message);
 
             try (OutputStream os = connection.getOutputStream()) {
-                byte[] input = jsonPayload.getBytes("utf-8");
-                os.write(input, 0, input.length);
+                os.write(json.toString().getBytes("utf-8"));
             }
 
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode != HttpURLConnection.HTTP_OK && responseCode != HttpURLConnection.HTTP_NO_CONTENT) {
-                try (var errorStream = connection.getErrorStream()) {
-                    if (errorStream != null) {
-                        String errorResponse = new String(errorStream.readAllBytes(), "utf-8");
-                        System.out.println("[ERRO] Resposta de erro do Discord: " + errorResponse);
-                    }
-                }
-            }
+            connection.getResponseCode();
         } catch (IOException e) {
-            System.out.println("[ERRO] Erro ao enviar webhook para o Discord:");
             e.printStackTrace();
+        }
+    }
+
+    // Classe auxiliar para armazenar o nome do jogador e o conteúdo da placa
+    private static class SignData {
+        private final String playerName;
+        private final String content;
+
+        public SignData(String playerName, String content) {
+            this.playerName = playerName;
+            this.content = content;
+        }
+
+        public String getPlayerName() {
+            return playerName;
+        }
+
+        public String getContent() {
+            return content;
         }
     }
 }
