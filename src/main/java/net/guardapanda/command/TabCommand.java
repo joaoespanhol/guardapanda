@@ -75,23 +75,20 @@ public class TabCommand {
         );
     }
 
-	
-	@SubscribeEvent
-	public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
-	    if (event.getEntity() instanceof ServerPlayer) {
-	        ServerPlayer player = (ServerPlayer) event.getEntity();
-	        // Atualiza a visibilidade do jogador ao mudar de modo
-	        if (event.getNewGameMode() == GameType.SURVIVAL) {
-	            // Se o jogador voltar para o Survival, força a atualização da visibilidade
-	            updatePlayerVisibility(player);
-	        } else if (event.getNewGameMode() == GameType.SPECTATOR) {
-	            // Se o jogador entrar no modo Spectator, oculta-o da TabList
-	            hidePlayerFromTabList(player);
-	        }
-	    }
-}
-
-
+    @SubscribeEvent
+    public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+            // Atualiza a visibilidade do jogador ao mudar de modo
+            if (event.getNewGameMode() == GameType.SURVIVAL) {
+                // Se o jogador voltar para o Survival, força a atualização da visibilidade
+                updatePlayerVisibility(player);
+            } else if (event.getNewGameMode() == GameType.SPECTATOR) {
+                // Se o jogador entrar no modo Spectator, oculta-o da TabList
+                hidePlayerFromTabList(player);
+            }
+        }
+    }
 
     private static void createDefaultConfigFileIfNotExists() {
         File configFile = new File(CONFIG_FILE_PATH);
@@ -186,9 +183,6 @@ public class TabCommand {
                 if (isVanished(player) || player.isSpectator()) {
                     // Remove o jogador da TabList dos outros jogadores
                     hidePlayerFromTabList(player);
-                } else {
-                    // Atualiza a visibilidade do jogador na TabList se não estiver em Vanish ou Spectator
-                    updatePlayerVisibility(player);
                 }
             }
         }
@@ -225,12 +219,10 @@ public class TabCommand {
         if (state) {
             // Oculta o jogador da TabList
             hidePlayerFromTabList(player);
-            player.setGameMode(GameType.SURVIVAL); // Opcional: muda para modo Espectador
             player.sendSystemMessage(Component.literal("§aVocê está agora invisível."));
         } else {
             // Mostra o jogador na TabList
             updatePlayerVisibility(player);
-            player.setGameMode(GameType.SURVIVAL); // Volta ao modo Survival
             player.sendSystemMessage(Component.literal("§aVocê está agora visível."));
         }
     }
