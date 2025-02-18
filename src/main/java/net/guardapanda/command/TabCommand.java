@@ -79,12 +79,16 @@ public class TabCommand {
     public static void onPlayerChangeGameMode(PlayerEvent.PlayerChangeGameModeEvent event) {
         if (event.getEntity() instanceof ServerPlayer) {
             ServerPlayer player = (ServerPlayer) event.getEntity();
-            // Atualiza a visibilidade do jogador ao mudar de modo
-            if (event.getNewGameMode() == GameType.SURVIVAL) {
-                // Se o jogador voltar para o Survival, força a atualização da visibilidade
+
+            // Verifica se o jogador está saindo do modo Spectator
+            if (event.getCurrentGameMode() == GameType.SPECTATOR) {
+                // Se o jogador estava no modo Spectator e está mudando para outro modo, atualiza a visibilidade
                 updatePlayerVisibility(player);
-            } else if (event.getNewGameMode() == GameType.SPECTATOR) {
-                // Se o jogador entrar no modo Spectator, oculta-o da TabList
+            }
+
+            // Verifica se o jogador está entrando no modo Spectator
+            if (event.getNewGameMode() == GameType.SPECTATOR) {
+                // Se o jogador está entrando no modo Spectator, oculta-o da TabList
                 hidePlayerFromTabList(player);
             }
         }
