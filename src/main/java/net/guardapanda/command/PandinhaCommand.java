@@ -1,5 +1,5 @@
-
 package net.guardapanda.command;
+
 
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -17,7 +17,9 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import java.util.Optional;
 import java.util.HashMap;
 import java.util.UUID;
-import net.minecraftforge.event.entity.player.PlayerEvent;  // Importe esta linha
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.EntityTeleportEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent; // Importação corrigida
 
 @Mod.EventBusSubscriber
 public class PandinhaCommand {
@@ -37,7 +39,6 @@ public class PandinhaCommand {
                 })
             )
         );
-
 
         // Comando /echest
         event.getDispatcher().register(Commands.literal("echest")
@@ -75,138 +76,87 @@ public class PandinhaCommand {
             })
         );
 
-// Comando /fly
-event.getDispatcher().register(Commands.literal("fly")
+        // Comando /fly
+        event.getDispatcher().register(Commands.literal("fly")
           .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
-    .then(Commands.literal("on")
-        .executes(context -> {
-            if (context.getSource().getEntity() instanceof ServerPlayer) {
-                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-                // Ativar o voo
-                if (!player.getAbilities().flying) {
-                    player.getAbilities().flying = true;
-                    player.getAbilities().mayfly = true;
-                    player.onUpdateAbilities();
-                    context.getSource().sendSuccess(() -> Component.literal("Modo fly ativado!"), false);
-                } else {
-                    context.getSource().sendSuccess(() -> Component.literal("O voo já está ativado!"), false);
-                }
-            } else {
-                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-            }
-            return 1;
-        })
-    )
-    .then(Commands.literal("off")
-        .executes(context -> {
-            if (context.getSource().getEntity() instanceof ServerPlayer) {
-                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-                // Desativar o voo
-                if (player.getAbilities().flying) {
-                    player.getAbilities().flying = false;
-                    player.getAbilities().mayfly = false;
-                    player.onUpdateAbilities();
-                    context.getSource().sendSuccess(() -> Component.literal("Modo fly desativado!"), false);
-                } else {
-                    context.getSource().sendSuccess(() -> Component.literal("O voo já está desativado!"), false);
-                }
-            } else {
-                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-            }
-            return 1;
-                        })
+            .then(Commands.literal("on")
+                .executes(context -> {
+                    if (context.getSource().getEntity() instanceof ServerPlayer) {
+                        ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
+                        // Ativar o voo
+                        if (!player.getAbilities().flying) {
+                            player.getAbilities().flying = true;
+                            player.getAbilities().mayfly = true;
+                            player.onUpdateAbilities();
+                            context.getSource().sendSuccess(() -> Component.literal("Modo fly ativado!"), false);
+                        } else {
+                            context.getSource().sendSuccess(() -> Component.literal("O voo já está ativado!"), false);
+                        }
+                    } else {
+                        context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    }
+                    return 1;
+                })
+            )
+            .then(Commands.literal("off")
+                .executes(context -> {
+                    if (context.getSource().getEntity() instanceof ServerPlayer) {
+                        ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
+                        // Desativar o voo
+                        if (player.getAbilities().flying) {
+                            player.getAbilities().flying = false;
+                            player.getAbilities().mayfly = false;
+                            player.onUpdateAbilities();
+                            context.getSource().sendSuccess(() -> Component.literal("Modo fly desativado!"), false);
+                        } else {
+                            context.getSource().sendSuccess(() -> Component.literal("O voo já está desativado!"), false);
+                        }
+                    } else {
+                        context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    }
+                    return 1;
+                })
             )
         );
-//vanish
-/*
-		event.getDispatcher().register(Commands.literal("vanish")
-          .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
-		    .then(Commands.literal("on")
-		        .executes(context -> {
-		            if (context.getSource().getEntity() instanceof ServerPlayer) {
-		                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-		                // Ativar o modo God (invulnerabilidade)
-		                if (!player.isInvulnerable()) {
-		                    player.setInvulnerable(true); // Remove a invulnerabilidade
-						    player.setInvisible(true);
-							player.getAbilities().flying = true;
-							player.getAbilities().mayfly = true;
-							player.setInvulnerable(true);
-							player.noPhysics = true; // Restaura a física para detectar por mobs // Torna o jogador invulnerável
-		                    context.getSource().sendSuccess(() -> Component.literal("Modo vanish ativado! Você está invulnerável."), false);
-		                } else {
-		                    context.getSource().sendSuccess(() -> Component.literal("Você já está no modo vanish!"), false);
-		                }
-		            } else {
-		                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-		            }
-		            return 1;
-		        })
-		    )
-		    .then(Commands.literal("off")
-		        .executes(context -> {
-		            if (context.getSource().getEntity() instanceof ServerPlayer) {
-		                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-		                // Desativar o modo God (remover invulnerabilidade)
-		                if (player.isInvulnerable()) {
-		                    player.setInvulnerable(false); // Remove a invulnerabilidade
-						    player.setInvisible(false);
-							player.getAbilities().flying = false;
-							player.getAbilities().mayfly = false;
-							player.setInvulnerable(false);
-							player.noPhysics = false; // Restaura a física para detectar por mobs
-		                    context.getSource().sendSuccess(() -> Component.literal("Modo vanish desativado! Você não está mais invulnerável."), false);
-		                } else {
-		                    context.getSource().sendSuccess(() -> Component.literal("Você não está no modo vanish!"), false);
-		                }
-		            } else {
-		                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-		            }
-		            return 1;
-		        })
-		    )
-		);
-  */
-// GOD
-		event.getDispatcher().register(Commands.literal("god")
-          .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
-		    .then(Commands.literal("on")
-		        .executes(context -> {
-		            if (context.getSource().getEntity() instanceof ServerPlayer) {
-		                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-		                // Ativar o modo God (invulnerabilidade)
-		                if (!player.isInvulnerable()) {
-		                    player.setInvulnerable(true); // Torna o jogador invulnerável
-		                    context.getSource().sendSuccess(() -> Component.literal("Modo God ativado! Você está invulnerável."), false);
-		                } else {
-		                    context.getSource().sendSuccess(() -> Component.literal("Você já está no modo God!"), false);
-		                }
-		            } else {
-		                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-		            }
-		            return 1;
-		        })
-		    )
-		    .then(Commands.literal("off")
-		        .executes(context -> {
-		            if (context.getSource().getEntity() instanceof ServerPlayer) {
-		                ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-		                // Desativar o modo God (remover invulnerabilidade)
-		                if (player.isInvulnerable()) {
-		                    player.setInvulnerable(false); // Remove a invulnerabilidade
-		                    context.getSource().sendSuccess(() -> Component.literal("Modo God desativado! Você não está mais invulnerável."), false);
-		                } else {
-		                    context.getSource().sendSuccess(() -> Component.literal("Você não está no modo God!"), false);
-		                }
-		            } else {
-		                context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
-		            }
-		            return 1;
-		        })
-		    )
-		);
 
-
+        // Comando /god
+        event.getDispatcher().register(Commands.literal("god")
+          .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
+            .then(Commands.literal("on")
+                .executes(context -> {
+                    if (context.getSource().getEntity() instanceof ServerPlayer) {
+                        ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
+                        // Ativar o modo God (invulnerabilidade)
+                        if (!player.isInvulnerable()) {
+                            player.setInvulnerable(true); // Torna o jogador invulnerável
+                            context.getSource().sendSuccess(() -> Component.literal("Modo God ativado! Você está invulnerável."), false);
+                        } else {
+                            context.getSource().sendSuccess(() -> Component.literal("Você já está no modo God!"), false);
+                        }
+                    } else {
+                        context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    }
+                    return 1;
+                })
+            )
+            .then(Commands.literal("off")
+                .executes(context -> {
+                    if (context.getSource().getEntity() instanceof ServerPlayer) {
+                        ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
+                        // Desativar o modo God (remover invulnerabilidade)
+                        if (player.isInvulnerable()) {
+                            player.setInvulnerable(false); // Remove a invulnerabilidade
+                            context.getSource().sendSuccess(() -> Component.literal("Modo God desativado! Você não está mais invulnerável."), false);
+                        } else {
+                            context.getSource().sendSuccess(() -> Component.literal("Você não está no modo God!"), false);
+                        }
+                    } else {
+                        context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    }
+                    return 1;
+                })
+            )
+        );
 
         // Comando /tp
         event.getDispatcher().register(Commands.literal("tp")
@@ -254,25 +204,53 @@ event.getDispatcher().register(Commands.literal("fly")
             )
         );
 
-    // Evento para registrar o comando /back
-
+        // Comando /back
         event.getDispatcher().register(Commands.literal("back")
-          .requires(source -> source.hasPermission(2)) // Requer permissão de OP (nível 2)
             .executes(context -> {
-                if (context.getSource().getEntity() instanceof ServerPlayer) {
-                    ServerPlayer player = (ServerPlayer) context.getSource().getEntity();
-                    if (lastLocations.containsKey(player.getUUID())) {
-                        double[] coords = lastLocations.get(player.getUUID());
-                        player.teleportTo(coords[0], coords[1], coords[2]);
-                        context.getSource().sendSuccess(() -> Component.literal("Você voltou ao local anterior!"), false);
+                CommandSourceStack source = context.getSource();
+                if (source.getEntity() instanceof ServerPlayer) {
+                    ServerPlayer player = (ServerPlayer) source.getEntity();
+                    UUID playerUUID = player.getUUID();
+
+                    // Verifica se o jogador tem uma localização anterior salva
+                    if (lastLocations.containsKey(playerUUID)) {
+                        double[] lastLocation = lastLocations.get(playerUUID);
+                        player.teleportTo(player.serverLevel(), lastLocation[0], lastLocation[1], lastLocation[2], player.getYRot(), player.getXRot());
+                        source.sendSuccess(() -> Component.literal("Você voltou para a última localização salva."), false);
+                        return 1; // Sucesso
                     } else {
-                        context.getSource().sendFailure(Component.literal("Nenhuma localização anterior encontrada!"));
+                        source.sendFailure(Component.literal("Nenhuma localização anterior foi salva!"));
+                        return 0; // Falha
                     }
                 } else {
-                    context.getSource().sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    source.sendFailure(Component.literal("Este comando só pode ser usado por jogadores!"));
+                    return 0; // Falha
                 }
-                return 1;
             })
         );
-    };
+    }
+
+    // Salva a localização do jogador ao morrer
+    @SubscribeEvent
+    public static void onPlayerDeath(LivingDeathEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+            savePlayerLocation(player);
+        }
+    }
+
+    // Salva a localização do jogador ao ser teletransportado
+    @SubscribeEvent
+    public static void onPlayerTeleport(EntityTeleportEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            ServerPlayer player = (ServerPlayer) event.getEntity();
+            savePlayerLocation(player);
+        }
+    }
+
+    // Método para salvar a localização do jogador
+    private static void savePlayerLocation(ServerPlayer player) {
+        UUID playerUUID = player.getUUID();
+        lastLocations.put(playerUUID, new double[]{player.getX(), player.getY(), player.getZ()});
+    }
 }
