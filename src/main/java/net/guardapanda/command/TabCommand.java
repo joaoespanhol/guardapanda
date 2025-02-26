@@ -14,7 +14,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.BoolArgumentType;
 import net.minecraft.world.level.GameType;
 
 import java.io.File;
@@ -53,7 +52,7 @@ public class TabCommand {
             if (updateTickCounter >= UPDATE_INTERVAL) {
                 loadTabListComponents(); // Recarrega as frases do arquivo de configuração
                 updateTabListForAllPlayers();
-                hideVanishedAndSpectatorPlayers();
+                hideSpectatorPlayers();
                 updateTickCounter = 0; // Reinicia o contador
             }
         }
@@ -61,18 +60,7 @@ public class TabCommand {
 
     @SubscribeEvent
     public static void onRegisterCommands(RegisterCommandsEvent event) {
-        CommandDispatcher<CommandSourceStack> dispatcher = event.getDispatcher();
-        dispatcher.register(
-            Commands.literal("vanish")
-                .then(Commands.argument("state", BoolArgumentType.bool())
-                    .executes(context -> {
-                        boolean state = BoolArgumentType.getBool(context, "state");
-                        ServerPlayer player = context.getSource().getPlayerOrException();
-                        setVanish(player, state);
-                        return 1;
-                    })
-                )
-        );
+        // Aqui você pode adicionar outros comandos, se necessário
     }
 
     @SubscribeEvent
@@ -154,21 +142,21 @@ public class TabCommand {
     }
 
     private static int getOnlinePlayerCount() {
-        // Obtém o número de jogadores online, excluindo jogadores em vanish ou spectator
+        // Obtém o número de jogadores online, excluindo jogadores em spectator
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             return (int) ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers().stream()
-                    .filter(player -> !isVanished(player) && !player.isSpectator())
+                    .filter(player -> !player.isSpectator())
                     .count();
         }
         return 0; // Retorna 0 se o servidor ainda não estiver disponível
     }
 
     private static int getStaffCount() {
-        // Obtém o número de jogadores com permissão de staff, excluindo jogadores em vanish ou spectator
+        // Obtém o número de jogadores com permissão de staff, excluindo jogadores em spectator
         int staffCount = 0;
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-                if (player.hasPermissions(4) && !isVanished(player) && !player.isSpectator()) {
+                if (player.hasPermissions(4) && !player.isSpectator()) {
                     staffCount++;
                 }
             }
@@ -176,15 +164,10 @@ public class TabCommand {
         return staffCount;
     }
 
-    private static boolean isVanished(ServerPlayer player) {
-        // Verifica se o jogador está em vanish
-        return player.getPersistentData().getBoolean("vanished");
-    }
-
-    private static void hideVanishedAndSpectatorPlayers() {
+    private static void hideSpectatorPlayers() {
         if (ServerLifecycleHooks.getCurrentServer() != null) {
             for (ServerPlayer player : ServerLifecycleHooks.getCurrentServer().getPlayerList().getPlayers()) {
-                if (isVanished(player) || player.isSpectator()) {
+                if (player.isSpectator()) {
                     // Remove o jogador da TabList dos outros jogadores
                     hidePlayerFromTabList(player);
                 }
@@ -212,22 +195,6 @@ public class TabCommand {
                     otherPlayer.connection.send(ClientboundPlayerInfoUpdatePacket.createPlayerInitializing(List.of(player)));
                 }
             }
-        }
-    }
-
-    private static void setVanish(ServerPlayer player, boolean state) {
-        // Define o estado de vanish no jogador
-        player.getPersistentData().putBoolean("vanished", state);
-
-        // Atualiza a visibilidade do jogador na TabList
-        if (state) {
-            // Oculta o jogador da TabList
-            hidePlayerFromTabList(player);
-            player.sendSystemMessage(Component.literal("§aVocê está agora invisível."));
-        } else {
-            // Mostra o jogador na TabList
-            updatePlayerVisibility(player);
-            player.sendSystemMessage(Component.literal("§aVocê está agora visível."));
         }
     }
 }
