@@ -1,4 +1,4 @@
-package net.mcreator.guardapanda.command;
+package net.guardapanda.command;
 
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
