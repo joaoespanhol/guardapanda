@@ -1,4 +1,4 @@
-package net.guardapanda.command;
+package net.mcreator.guardapanda.command;
 
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
@@ -232,31 +232,42 @@ public class WorldguardCommand {
         }
     }
 
-    @SubscribeEvent
-    public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
-        Player player = event.getEntity();
+	@SubscribeEvent
+	public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
+	    Player player = event.getEntity();
+	
+	    // Verifica se o jogador é um operador (OP)
+	    if (!player.hasPermissions(2)) { // 2 é o nível de permissão de OP
+	        return;
+	    }
+	
+	    if (player.getMainHandItem().getItem() instanceof AxeItem) {
+	        if (event.getHand() == InteractionHand.MAIN_HAND) {
+	            firstPoint.put(player, event.getPos());
+	            player.sendSystemMessage(Component.literal("Primeiro ponto selecionado: " + event.getPos()));
+	            event.setCanceled(true);  // Impede ações padrão
+	        }
+	    }
+	}
+	
+	@SubscribeEvent
+	public static void onPlayerInteractLeft(PlayerInteractEvent.LeftClickBlock event) {
+	    Player player = event.getEntity();
+	
+	    // Verifica se o jogador é um operador (OP)
+	    if (!player.hasPermissions(2)) { // 2 é o nível de permissão de OP
+	        return;
+	    }
+	
+	    if (player.getMainHandItem().getItem() instanceof AxeItem) {
+	        if (event.getHand() == InteractionHand.MAIN_HAND) {
+	            secondPoint.put(player, event.getPos());
+	            player.sendSystemMessage(Component.literal("Segundo ponto selecionado: " + event.getPos()));
+	            event.setCanceled(true);  // Impede ações padrão
+	        }
+	    }
+	}
 
-        if (player.getMainHandItem().getItem() instanceof AxeItem) {
-            if (event.getHand() == InteractionHand.MAIN_HAND) {
-                firstPoint.put(player, event.getPos());
-                player.sendSystemMessage(Component.literal("Primeiro ponto selecionado: " + event.getPos()));
-                event.setCanceled(true);  // Impede ações padrão
-            }
-        }
-    }
-
-    @SubscribeEvent
-    public static void onPlayerInteractLeft(PlayerInteractEvent.LeftClickBlock event) {
-        Player player = event.getEntity();
-
-        if (player.getMainHandItem().getItem() instanceof AxeItem) {
-            if (event.getHand() == InteractionHand.MAIN_HAND) {
-                secondPoint.put(player, event.getPos());
-                player.sendSystemMessage(Component.literal("Segundo ponto selecionado: " + event.getPos()));
-                event.setCanceled(true);  // Impede ações padrão
-            }
-        }
-    }
 
     @SubscribeEvent
     public static void onProjectileDamage(LivingDamageEvent event) {
