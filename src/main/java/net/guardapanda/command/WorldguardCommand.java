@@ -17,6 +17,7 @@ import net.minecraft.world.entity.projectile.ThrownPotion;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.entity.player.Player; // Para acessar a classe Player
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.living.LivingDamageEvent;
 import net.minecraftforge.event.RegisterCommandsEvent;
@@ -35,6 +36,10 @@ import java.util.List;
 import java.util.ArrayList;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import net.minecraft.world.item.Items; // Para acessar Items.GOLDEN_AXE
+import net.minecraft.world.InteractionHand; // Para acessar InteractionHand
+import net.minecraftforge.event.entity.player.PlayerInteractEvent; // Para acessar PlayerInteractEvent
+import net.minecraftforge.eventbus.api.SubscribeEvent; // Para acessar SubscribeEvent
 
 @Mod.EventBusSubscriber(modid = "guardapanda", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class WorldguardCommand {
@@ -232,6 +237,8 @@ public class WorldguardCommand {
         }
     }
 
+	
+	
 	@SubscribeEvent
 	public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
 	    Player player = event.getEntity();
@@ -241,7 +248,8 @@ public class WorldguardCommand {
 	        return;
 	    }
 	
-	    if (player.getMainHandItem().getItem() instanceof AxeItem) {
+	    // Verifica se o jogador está segurando um machado de ouro
+	    if (player.getMainHandItem().getItem() == Items.GOLDEN_AXE) {
 	        if (event.getHand() == InteractionHand.MAIN_HAND) {
 	            firstPoint.put(player, event.getPos());
 	            player.sendSystemMessage(Component.literal("Primeiro ponto selecionado: " + event.getPos()));
@@ -259,7 +267,8 @@ public class WorldguardCommand {
 	        return;
 	    }
 	
-	    if (player.getMainHandItem().getItem() instanceof AxeItem) {
+	    // Verifica se o jogador está segurando um machado de ouro
+	    if (player.getMainHandItem().getItem() == Items.GOLDEN_AXE) {
 	        if (event.getHand() == InteractionHand.MAIN_HAND) {
 	            secondPoint.put(player, event.getPos());
 	            player.sendSystemMessage(Component.literal("Segundo ponto selecionado: " + event.getPos()));
@@ -267,7 +276,7 @@ public class WorldguardCommand {
 	        }
 	    }
 	}
-
+	
 
     @SubscribeEvent
     public static void onProjectileDamage(LivingDamageEvent event) {
