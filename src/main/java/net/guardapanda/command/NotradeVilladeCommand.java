@@ -59,6 +59,7 @@ public class NotradeVilladeCommand {
     @SubscribeEvent
     public static void registerCommand(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("notradevillade")
+		    .requires(source -> source.hasPermission(2)) // Define o nível de permissão como 2 (apenas operadores)
             .then(Commands.literal("enable").executes(context -> {
                 noTradeEnabledConfig.set(true); // Salva o novo estado no arquivo de configuração
                 context.getSource().sendSuccess(() -> Component.literal(messageEnabled.get()), true);
