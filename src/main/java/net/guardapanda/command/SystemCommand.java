@@ -39,11 +39,11 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -260,6 +260,7 @@ public class SystemCommand {
                     ctx.getSource().sendSuccess(() -> Component.literal(reloadMessage), false);
                     return 1;
                 })));
+                
     }
 
     private static PlayerLogin getPlayerLogin(ServerPlayer player) {
@@ -445,7 +446,7 @@ public class SystemCommand {
         private int registerAttempts;
         private long loginStartTime; // Tempo em que o jogador entrou no servidor
         private long lastLoginTime; // Tempo do último login
-        private Vec3 quitLocation; // Localização de saída do jogador
+        private Vec3 initialPosition; // Armazena a posição inicial do jogador
 
         public PlayerLogin(ServerPlayer player) {
             this.player = player;
@@ -454,6 +455,7 @@ public class SystemCommand {
             this.registerAttempts = 0;
             this.loginStartTime = System.currentTimeMillis(); // Registra o tempo de entrada
             this.lastLoginTime = System.currentTimeMillis(); // Registra o tempo do último login
+            this.initialPosition = player.position(); // Salva a posição inicial
             setPlayerAttributes(player, 0, 0); // Define velocidade e força do pulo como 0
         }
 
@@ -496,12 +498,8 @@ public class SystemCommand {
             return lastLoginTime;
         }
 
-        public Vec3 getQuitLocation() {
-            return quitLocation;
-        }
-
-        public void setQuitLocation(Vec3 quitLocation) {
-            this.quitLocation = quitLocation;
+        public Vec3 getInitialPosition() {
+            return initialPosition;
         }
     }
 
@@ -517,6 +515,16 @@ public class SystemCommand {
                 playerLogin.setLoggedIn(false); // Reseta o estado de login ao entrar no servidor
                 setPlayerAttributes(player, 0, 0); // Define velocidade e força do pulo como 0
 
+                // Verifica se o jogador já está registrado
+                String username = player.getGameProfile().getName();
+                if (isPlayerRegistered(username)) {
+                    // Se o jogador já está registrado, envia a mensagem de login
+                    player.sendSystemMessage(Component.literal(loginMessage));
+                } else {
+                    // Se o jogador não está registrado, envia a mensagem de registro
+                    player.sendSystemMessage(Component.literal(registerMessage));
+                }
+
                 // Mensagem de boas-vindas personalizada
                 if (enableJoinMessage) {
                     String formattedMessage = String.format(joinMessage, player.getGameProfile().getName());
@@ -530,7 +538,6 @@ public class SystemCommand {
             if (event.getEntity() instanceof ServerPlayer) {
                 ServerPlayer player = (ServerPlayer) event.getEntity();
                 PlayerLogin playerLogin = getPlayerLogin(player);
-                playerLogin.setQuitLocation(player.position()); // Salva a localização de saída
 
                 // Mensagem de saída personalizada
                 if (enableLeaveMessage) {
@@ -555,8 +562,12 @@ public class SystemCommand {
                     if (elapsedTime >= loginTime) {
                         player.connection.disconnect(Component.literal(timeoutMessage));
                     } else {
-                        // Impede o movimento vertical (pulo)
-                        player.setDeltaMovement(player.getDeltaMovement().x(), 0, player.getDeltaMovement().z());
+                        // Teleporta o jogador de volta para a posição inicial
+                        Vec3 initialPosition = playerLogin.getInitialPosition();
+                        player.teleportTo(initialPosition.x, initialPosition.y, initialPosition.z);
+
+                        // Impede o movimento
+                        player.setDeltaMovement(0, 0, 0); // Define a velocidade do jogador como zero
                         player.setOnGround(true); // Força o jogador a ficar no chão
                     }
                 }
@@ -587,9 +598,72 @@ public class SystemCommand {
                     event.setCanceled(true);
 
                     // Adiciona o item de volta ao inventário do jogador
-					ItemEntity itemEntity = event.getEntity();
+                    ItemEntity itemEntity = event.getEntity();
                     ItemStack itemStack = itemEntity.getItem();
                     player.getInventory().add(itemStack);
+                }
+            }
+        }
+
+        @SubscribeEvent
+        public static void onLivingHurt(LivingHurtEvent event) {
+            if (event.getEntity() instanceof ServerPlayer) {
+                ServerPlayer player = (ServerPlayer) event.getEntity();
+                PlayerLogin playerLogin = getPlayerLogin(player);
+
+                // Se o jogador não estiver logado, cancela o dano e o knockback
+                if (!playerLogin.isLoggedIn()) {
+                    event.setCanceled(true); // Cancela o dano
+
+                    // Congela o jogador na posição atual
+                    Vec3 currentPos = player.position();
+                    player.teleportTo(currentPos.x, currentPos.y, currentPos.z);
+
+                    // Impede o movimento
+                    player.setDeltaMovement(0, 0, 0); // Define a velocidade do jogador como zero
+                    player.setOnGround(true); // Força o jogador a ficar no chão
+                }
+            }
+        }
+
+        @SubscribeEvent
+        public static void onLivingDamage(LivingDamageEvent event) {
+            if (event.getEntity() instanceof ServerPlayer) {
+                ServerPlayer player = (ServerPlayer) event.getEntity();
+                PlayerLogin playerLogin = getPlayerLogin(player);
+
+                // Se o jogador não estiver logado, cancela o dano
+                if (!playerLogin.isLoggedIn()) {
+                    event.setCanceled(true); // Cancela o dano
+                }
+            }
+        }
+
+        @SubscribeEvent
+        public static void onServerChat(ServerChatEvent event) {
+            ServerPlayer player = event.getPlayer();
+            PlayerLogin playerLogin = getPlayerLogin(player);
+
+            // Se o jogador não estiver logado, cancela a mensagem no chat
+            if (!playerLogin.isLoggedIn()) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("§cVocê precisa fazer login para falar no chat."));
+            }
+        }
+
+        @SubscribeEvent
+        public static void onCommand(CommandEvent event) {
+            if (event.getParseResults().getContext().getSource().getEntity() instanceof ServerPlayer) {
+                ServerPlayer player = (ServerPlayer) event.getParseResults().getContext().getSource().getEntity();
+                PlayerLogin playerLogin = getPlayerLogin(player);
+
+                // Obtém o comando que está sendo executado
+                String command = event.getParseResults().getReader().getString();
+
+                // Se o jogador não estiver logado, cancela o comando (exceto /login e /register)
+                if (!playerLogin.isLoggedIn() && !command.startsWith("login") && !command.startsWith("register")) {
+                    event.setCanceled(true);
+                    player.sendSystemMessage(Component.literal("§cVocê precisa fazer login para usar comandos."));
                 }
             }
         }
