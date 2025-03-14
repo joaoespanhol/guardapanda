@@ -548,31 +548,32 @@ public class SystemCommand {
                 }
             }
         }
+		
+	@SubscribeEvent
+	public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+		if (event.player instanceof ServerPlayer) {
+			ServerPlayer player = (ServerPlayer) event.player;
+			PlayerLogin playerLogin = getPlayerLogin(player);
+			
+			if (!playerLogin.isLoggedIn()) {
+				long currentTime = System.currentTimeMillis();
+				long elapsedTime = (currentTime - playerLogin.getLoginStartTime()) / 1000;
+				
+				
+				if (elapsedTime >= 300) {
+					player.connection.disconnect(Component.literal("Tempo esgotado. Você foi desconectado."));
+				} else {
+					// Comentando o teleportamento para teste
+					// Vec3 initialPosition = playerLogin.getInitialPosition();
+					// player.teleportTo(initialPosition.x, initialPosition.y, initialPosition.z);
+					
+					// Removendo setDeltaMovement para evitar desincronização
+					// player.setDeltaMovement(0, 0, 0);
+				}
+			}
+		}
+	}
 
-        @SubscribeEvent
-        public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-            if (event.player instanceof ServerPlayer) {
-                ServerPlayer player = (ServerPlayer) event.player;
-                PlayerLogin playerLogin = getPlayerLogin(player);
-                if (!playerLogin.isLoggedIn()) {
-                    // Verifica se o tempo de login expirou
-                    long currentTime = System.currentTimeMillis();
-                    long elapsedTime = (currentTime - playerLogin.getLoginStartTime()) / 1000; // Tempo em segundos
-
-                    if (elapsedTime >= loginTime) {
-                        player.connection.disconnect(Component.literal(timeoutMessage));
-                    } else {
-                        // Teleporta o jogador de volta para a posição inicial
-                        Vec3 initialPosition = playerLogin.getInitialPosition();
-                        player.teleportTo(initialPosition.x, initialPosition.y, initialPosition.z);
-
-                        // Impede o movimento
-                        player.setDeltaMovement(0, 0, 0); // Define a velocidade do jogador como zero
-                        player.setOnGround(true); // Força o jogador a ficar no chão
-                    }
-                }
-            }
-        }
 
         @SubscribeEvent
         public static void onPlayerInteract(PlayerInteractEvent event) {
