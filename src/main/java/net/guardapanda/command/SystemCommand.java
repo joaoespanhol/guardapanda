@@ -61,19 +61,11 @@ public class SystemCommand {
     private static JsonArray jsonArray = new JsonArray();
 
     // Configurações padrão
-    private static int loginTime = 300; // Tempo de login em segundos
-    private static int registerTime = 300; // Tempo de registro em segundos
-    private static int maxLoginAttempts = 3; // Número máximo de tentativas de login
-    private static int maxRegisterAttempts = 3; // Número máximo de tentativas de registro
-    private static int maxAccountsPerIP = 1; // Número máximo de contas por IP
     private static String loginMessage = "§aBem-vindo ao servidor! Faça o login usando /login <senha>.";
     private static String registerMessage = "§aUse /register <senha> para se registrar.";
-    private static String timeoutMessage = "§cTempo esgotado. Você foi desconectado.";
-    private static String maxAttemptsMessage = "§cVocê excedeu o número de tentativas. Tente novamente mais tarde.";
     private static String changePasswordMessage = "§aSenha alterada com sucesso!";
     private static String changePasswordStaffMessage = "§aSenha do jogador alterada com sucesso!";
     private static String unregisterMessage = "§aRegistro do jogador removido com sucesso!";
-    private static String maxAccountsPerIPMessage = "§cVocê atingiu o limite de contas permitidas por IP.";
     private static String forceLoginMessage = "§aLogin forçado realizado com sucesso!";
     private static String lastLoginMessage = "§aÚltimo login de %s: %s";
     private static String recentLoginsMessage = "§aÚltimos logins:\n%s";
@@ -104,17 +96,6 @@ public class SystemCommand {
                         return 1;
                     }
 
-                    if (playerLogin.getRegisterAttempts() >= maxRegisterAttempts) {
-                        ctx.getSource().sendFailure(Component.literal(maxAttemptsMessage));
-                        player.connection.disconnect(Component.literal(maxAttemptsMessage));
-                        return 1;
-                    }
-
-                    if (getAccountsByIP(ip) >= maxAccountsPerIP) {
-                        ctx.getSource().sendFailure(Component.literal(maxAccountsPerIPMessage));
-                        return 1;
-                    }
-
                     String uuid = player.getUUID().toString();
                     savePlayer(uuid, username, password, ip);
                     playerLogin.setLoggedIn(true);
@@ -142,13 +123,7 @@ public class SystemCommand {
                         player.setInvulnerable(false);
                         resetPlayerAttributes(player); // Restaura os atributos do jogador
                     } else {
-                        playerLogin.incrementLoginAttempts();
-                        if (playerLogin.getLoginAttempts() >= maxLoginAttempts) {
-                            ctx.getSource().sendFailure(Component.literal(maxAttemptsMessage));
-                            player.connection.disconnect(Component.literal(maxAttemptsMessage));
-                        } else {
-                            ctx.getSource().sendFailure(Component.literal("§cSenha incorreta! Tentativas restantes: " + (maxLoginAttempts - playerLogin.getLoginAttempts())));
-                        }
+                        ctx.getSource().sendFailure(Component.literal("§cSenha incorreta!"));
                     }
                     return 1;
                 })));
@@ -260,7 +235,6 @@ public class SystemCommand {
                     ctx.getSource().sendSuccess(() -> Component.literal(reloadMessage), false);
                     return 1;
                 })));
-                
     }
 
     private static PlayerLogin getPlayerLogin(ServerPlayer player) {
@@ -316,17 +290,6 @@ public class SystemCommand {
         }
     }
 
-    private static int getAccountsByIP(String ip) {
-        int count = 0;
-        for (int i = 0; i < jsonArray.size(); i++) {
-            JsonObject playerObject = jsonArray.get(i).getAsJsonObject();
-            if (playerObject.get("ip").getAsString().equals(ip)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private static void changePassword(String username, String newPassword) {
         JsonObject playerObject = findPlayerObject(username);
         if (playerObject != null) {
@@ -366,19 +329,11 @@ public class SystemCommand {
         if (!SYSTEM_LOGIN_CONFIG.exists()) {
             // Cria o arquivo de configuração com valores padrão
             JsonObject config = new JsonObject();
-            config.addProperty("loginTime", 300);
-            config.addProperty("registerTime", 300);
-            config.addProperty("maxLoginAttempts", 3);
-            config.addProperty("maxRegisterAttempts", 3);
-            config.addProperty("maxAccountsPerIP", 1);
             config.addProperty("loginMessage", "§aBem-vindo ao servidor! Faça o login usando /login <senha>.");
             config.addProperty("registerMessage", "§aUse /register <senha> para se registrar.");
-            config.addProperty("timeoutMessage", "§cTempo esgotado. Você foi desconectado.");
-            config.addProperty("maxAttemptsMessage", "§cVocê excedeu o número de tentativas. Tente novamente mais tarde.");
             config.addProperty("changePasswordMessage", "§aSenha alterada com sucesso!");
             config.addProperty("changePasswordStaffMessage", "§aSenha do jogador alterada com sucesso!");
             config.addProperty("unregisterMessage", "§aRegistro do jogador removido com sucesso!");
-            config.addProperty("maxAccountsPerIPMessage", "§cVocê atingiu o limite de contas permitidas por IP.");
             config.addProperty("forceLoginMessage", "§aLogin forçado realizado com sucesso!");
             config.addProperty("lastLoginMessage", "§aÚltimo login de %s: %s");
             config.addProperty("recentLoginsMessage", "§aÚltimos logins:\n%s");
@@ -400,19 +355,11 @@ public class SystemCommand {
             // Carrega as configurações do arquivo
             try (BufferedReader reader = new BufferedReader(new FileReader(SYSTEM_LOGIN_CONFIG, StandardCharsets.UTF_8))) {
                 JsonObject config = gson.fromJson(reader, JsonObject.class);
-                loginTime = config.get("loginTime").getAsInt();
-                registerTime = config.get("registerTime").getAsInt();
-                maxLoginAttempts = config.get("maxLoginAttempts").getAsInt();
-                maxRegisterAttempts = config.get("maxRegisterAttempts").getAsInt();
-                maxAccountsPerIP = config.get("maxAccountsPerIP").getAsInt();
                 loginMessage = config.get("loginMessage").getAsString();
                 registerMessage = config.get("registerMessage").getAsString();
-                timeoutMessage = config.get("timeoutMessage").getAsString();
-                maxAttemptsMessage = config.get("maxAttemptsMessage").getAsString();
                 changePasswordMessage = config.get("changePasswordMessage").getAsString();
                 changePasswordStaffMessage = config.get("changePasswordStaffMessage").getAsString();
                 unregisterMessage = config.get("unregisterMessage").getAsString();
-                maxAccountsPerIPMessage = config.get("maxAccountsPerIPMessage").getAsString();
                 forceLoginMessage = config.get("forceLoginMessage").getAsString();
                 lastLoginMessage = config.get("lastLoginMessage").getAsString();
                 recentLoginsMessage = config.get("recentLoginsMessage").getAsString();
@@ -442,18 +389,13 @@ public class SystemCommand {
     public static class PlayerLogin {
         private final ServerPlayer player;
         private boolean loggedIn;
-        private int loginAttempts;
-        private int registerAttempts;
-        private long loginStartTime; // Tempo em que o jogador entrou no servidor
         private long lastLoginTime; // Tempo do último login
         private Vec3 initialPosition; // Armazena a posição inicial do jogador
 
         public PlayerLogin(ServerPlayer player) {
             this.player = player;
             this.player.setInvulnerable(true); // Define o jogador como invulnerável ao entrar
-            this.loginAttempts = 0;
-            this.registerAttempts = 0;
-            this.loginStartTime = System.currentTimeMillis(); // Registra o tempo de entrada
+            this.loggedIn = false;
             this.lastLoginTime = System.currentTimeMillis(); // Registra o tempo do último login
             this.initialPosition = player.position(); // Salva a posição inicial
             setPlayerAttributes(player, 0, 0); // Define velocidade e força do pulo como 0
@@ -472,26 +414,6 @@ public class SystemCommand {
 
         public ServerPlayer getPlayer() {
             return player;
-        }
-
-        public void incrementLoginAttempts() {
-            this.loginAttempts++;
-        }
-
-        public int getLoginAttempts() {
-            return loginAttempts;
-        }
-
-        public void incrementRegisterAttempts() {
-            this.registerAttempts++;
-        }
-
-        public int getRegisterAttempts() {
-            return registerAttempts;
-        }
-
-        public long getLoginStartTime() {
-            return loginStartTime;
         }
 
         public long getLastLoginTime() {
@@ -546,6 +468,9 @@ public class SystemCommand {
                         onlinePlayer.sendSystemMessage(Component.literal(formattedMessage));
                     }
                 }
+
+                // Remove o jogador do mapa de logins para evitar problemas de estado
+                playerLoginMap.remove(player.getUUID());
             }
         }
 
@@ -555,21 +480,13 @@ public class SystemCommand {
                 ServerPlayer player = (ServerPlayer) event.player;
                 PlayerLogin playerLogin = getPlayerLogin(player);
                 if (!playerLogin.isLoggedIn()) {
-                    // Verifica se o tempo de login expirou
-                    long currentTime = System.currentTimeMillis();
-                    long elapsedTime = (currentTime - playerLogin.getLoginStartTime()) / 1000; // Tempo em segundos
+                    // Teleporta o jogador de volta para a posição inicial
+                    Vec3 initialPosition = playerLogin.getInitialPosition();
+                    player.teleportTo(initialPosition.x, initialPosition.y, initialPosition.z);
 
-                    if (elapsedTime >= loginTime) {
-                        player.connection.disconnect(Component.literal(timeoutMessage));
-                    } else {
-                        // Teleporta o jogador de volta para a posição inicial
-                        Vec3 initialPosition = playerLogin.getInitialPosition();
-                        player.teleportTo(initialPosition.x, initialPosition.y, initialPosition.z);
-
-                        // Impede o movimento
-                        player.setDeltaMovement(0, 0, 0); // Define a velocidade do jogador como zero
-                        player.setOnGround(true); // Força o jogador a ficar no chão
-                    }
+                    // Impede o movimento
+                    player.setDeltaMovement(0, 0, 0); // Define a velocidade do jogador como zero
+                    player.setOnGround(true); // Força o jogador a ficar no chão
                 }
             }
         }
