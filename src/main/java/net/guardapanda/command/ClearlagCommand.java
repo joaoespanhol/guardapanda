@@ -224,103 +224,85 @@ public class ClearlagCommand {
 
   
 
-private static void scheduleAutoClear() {
-    // Verifica se a limpeza automática está ativada no config
-    if (!config.getAsJsonObject("auto_removal").get("enabled").getAsBoolean()) {
-        return;
-    }
-
-    /* 
-     * CONFIGURAÇÃO DO INTERVALO:
-     * - "interval" no JSON define o tempo entre limpezas (em segundos)
-     * - Exemplo: 300 = limpeza a cada 5 minutos
-     */
-    int interval = config.getAsJsonObject("auto_removal").get("interval").getAsInt();
-    
-    scheduler.scheduleAtFixedRate(() -> {
-        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-        if (server != null) {
-            for (ServerLevel world : server.getAllLevels()) {
-                
-                /* 
-                 * MENSAGEM INICIAL:
-                 * - Procura por "warning_[intervalo]s" no JSON
-                 * - Exemplo: se intervalo=300, usa "warning_300s"
-                 */
-                broadcastMessage(world, getMessage("warning_" + interval + "s"));
-
-                // AGENDAMENTO DOS AVISOS:
-                JsonObject messages = config.getAsJsonObject("messages");
-                for (Map.Entry<String, JsonElement> entry : messages.entrySet()) {
-                    String key = entry.getKey();
-                    
-                    /*
-                     * FORMATO DOS AVISOS NO JSON:
-                     * - Chaves devem ser "warning_[segundos]s"
-                     * - Exemplos válidos:
-                     *   "warning_60s": "mensagem para 60s"
-                     *   "warning_10s": "mensagem para 10s"
-                     */
-                    if (key.startsWith("warning_") && key.endsWith("s")) {
-                        try {
-                            int seconds = Integer.parseInt(key.replace("warning_", "").replace("s", ""));
-                            
-                            // Só agenda se o tempo for menor que o intervalo principal
-                            if (seconds < interval && seconds > 0) {
-                                scheduler.schedule(() -> 
-                                    broadcastMessage(world, getMessage(key)), 
-                                    interval - seconds, TimeUnit.SECONDS);
-                            }
-                        } catch (NumberFormatException e) {
-                            // Ignora mensagens com formato inválido
-                        }
-                    }
-                }
-
-                /* 
-                 * LIMPEZA FINAL:
-                 * - Ocorre após o intervalo completo
-                 * - Usa a mensagem "cleared_entities" do JSON
-                 * - Formato deve conter dois placeholders %d:
-                 *   "cleared_entities": "Foram removidos %d itens e %d mobs"
-                 */
-                scheduler.schedule(() -> {
-                    int removedItems = clearItems(world);
-                    int killedMobs = killMobs(world);
-                    broadcastMessage(world, String.format(
-                        getMessage("cleared_entities"), 
-                        removedItems, 
-                        killedMobs
-                    ));
-                }, interval, TimeUnit.SECONDS);
-            }
-        }
-    }, 
-    /* 
-     * CONFIGURAÇÃO DO AGENDADOR:
-     * - Primeira execução: após [intervalo] segundos
-     * - Execuções seguintes: a cada [intervalo] segundos
-     */
-    interval, interval, TimeUnit.SECONDS);
-}
-
-
-
-
-
-
-
+	private static void scheduleAutoClear() {
+	    if (!config.getAsJsonObject("auto_removal").get("enabled").getAsBoolean()) {
+	        return;
+	    }
+	
+	    int interval = config.getAsJsonObject("auto_removal").get("interval").getAsInt();
+	    scheduler.scheduleAtFixedRate(() -> {
+	        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+	        if (server == null || server.isStopped()) return;
+	
+	        // Send initial warning with the configured interval
+	        String initialMessage = getInitialWarningMessage(interval);
+	        server.getPlayerList().broadcastSystemMessage(Component.literal(initialMessage), false);
+	
+	        // Schedule intermediate warnings
+	        scheduleWarning(server, interval - 60, "warning_60s");
+	        scheduleWarning(server, interval - 30, "warning_30s");
+	        scheduleWarning(server, interval - 3, "warning_3s");
+	        scheduleWarning(server, interval - 2, "warning_2s");
+	        scheduleWarning(server, interval - 1, "warning_1s");
+	
+	        // Schedule the actual clearing
+	        scheduler.schedule(() -> {
+	            server.executeIfPossible(() -> {
+	                if (server.isStopped()) return;
+	                
+	                int totalItems = 0;
+	                int totalMobs = 0;
+	                
+	                for (ServerLevel world : server.getAllLevels()) {
+	                    if (world != null && !world.isClientSide()) {
+	                        totalItems += clearItems(world);
+	                        totalMobs += killMobs(world);
+	                    }
+	                }
+	                
+	                String resultMsg = String.format(getMessage("cleared_entities"), totalItems, totalMobs);
+	                server.getPlayerList().broadcastSystemMessage(Component.literal(resultMsg), false);
+	            });
+	        }, interval, TimeUnit.SECONDS);
+	    }, interval, interval, TimeUnit.SECONDS);
+	}
+	
+	private static String getInitialWarningMessage(int interval) {
+	    return String.format("§4§l[ClearLag] §cAviso: Limpeza automática ocorrerá em §7%d §csegundos!", interval);
+	}
+	
+	private static void scheduleWarning(MinecraftServer server, int delay, String messageKey) {
+	    if (delay <= 0) return; // Skip if the delay has already passed
+	    
+	    scheduler.schedule(() -> {
+	        server.executeIfPossible(() -> {
+	            if (!server.isStopped()) {
+	                String message = getMessage(messageKey);
+	                server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
+	            }
+	        });
+	    }, delay, TimeUnit.SECONDS);
+	}
 
 
     private static void scheduleWarning(ServerLevel world, int time, String messageKey) {
         scheduler.schedule(() -> broadcastMessage(world, getMessage(messageKey)), time, TimeUnit.SECONDS);
     }
 
-    private static void broadcastMessage(ServerLevel world, String message) {
-        world.getPlayers(player -> true).forEach(player -> 
-            player.sendSystemMessage(Component.literal(message)));
-    }
 
+	private static void broadcastMessage(ServerLevel world, String message) {
+	    if (world == null || world.isClientSide()) return;
+	    
+	    MinecraftServer server = world.getServer();
+	    if (server == null || server.isStopped()) return;
+	
+	    // Converte a mensagem com cores e formatação
+	    Component text = Component.literal(message.replace('&', '§'));
+	    
+	    // Usa o sistema de broadcast seguro do Minecraft
+	    server.getPlayerList().broadcastSystemMessage(text, false);
+	}
+	
     private static int clearItems(ServerLevel world) {
         List<Entity> entities = new ArrayList<>();
         world.getEntities().getAll().forEach(entities::add);
