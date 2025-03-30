@@ -153,6 +153,7 @@ public class ClearlagCommand {
             JsonObject messages = new JsonObject();
             messages.addProperty("top_coordinates_header", "&6&lTop 10 coordenadas com mais entidades e itens:");
             messages.addProperty("top_coordinates_entry", "&7- &e%s &7- Entidades: &c%d &7- Itens: &c%d");
+            messages.addProperty("warning_250s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &7250 segundos!");
             messages.addProperty("warning_60s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &760 segundos!");
             messages.addProperty("warning_30s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &730 segundos!");
             messages.addProperty("warning_20s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &720 segundos!");
