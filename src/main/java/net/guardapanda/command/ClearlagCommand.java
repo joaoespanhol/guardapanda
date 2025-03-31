@@ -65,6 +65,19 @@ public class ClearlagCommand {
     private static final Set<String> protectedItems = new HashSet<>();
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+    // Classe auxiliar para armazenar dados das coordenadas
+    private static class CoordinateData {
+        public int x, y, z;
+        public int entityCount = 0;
+        public int itemCount = 0;
+
+        public CoordinateData(int x, int y, int z) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+        }
+    }
+
     @SubscribeEvent
     public static void registerCommand(RegisterCommandsEvent event) {
         loadConfig();
@@ -82,7 +95,7 @@ public class ClearlagCommand {
                 .executes(context -> killMobs(context.getSource())))
             .then(Commands.literal("area")
                 .then(Commands.argument("radius", IntegerArgumentType.integer(1))
-                    .executes(context -> clearArea(context.getSource(), IntegerArgumentType.getInteger(context, "radius"))))
+                    .executes(context -> clearArea(context.getSource(), IntegerArgumentType.getInteger(context, "radius")))))
             .then(Commands.literal("admin")
                 .executes(context -> manageModules(context.getSource())))
             .then(Commands.literal("gc")
@@ -108,7 +121,14 @@ public class ClearlagCommand {
             .then(Commands.literal("free")
                 .executes(context -> freeMemory(context.getSource())))
             .then(Commands.literal("lista")
-                .executes(context -> listTopEntitiesAndItems(context.getSource())))));
+                .executes(context -> listTopEntitiesAndItems(context.getSource())))
+            .then(Commands.literal("whitelist")
+                .then(Commands.literal("add")
+                    .executes(context -> addHeldItemToWhitelist(context.getSource())))
+                .then(Commands.literal("remove")
+                    .executes(context -> removeHeldItemFromWhitelist(context.getSource())))
+                .then(Commands.literal("list")
+                    .executes(context -> listWhitelistedItems(context.getSource())))));
 
         scheduleAutoClear();
     }
@@ -122,15 +142,27 @@ public class ClearlagCommand {
         try (FileReader reader = new FileReader(configFile)) {
             config = JsonParser.parseReader(reader).getAsJsonObject();
             
+            protectedEntities.clear();
             if (config.has("protected_entities")) {
                 JsonArray protectedEntitiesArray = config.getAsJsonArray("protected_entities");
                 protectedEntitiesArray.forEach(element -> protectedEntities.add(element.getAsString()));
             }
             
+            protectedItems.clear();
             if (config.has("protected_items")) {
                 JsonArray protectedItemsArray = config.getAsJsonArray("protected_items");
                 protectedItemsArray.forEach(element -> protectedItems.add(element.getAsString()));
             }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void saveConfig() {
+        File configFile = new File("config/guardapanda/clearlag_config.json");
+        try (FileWriter writer = new FileWriter(configFile)) {
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            gson.toJson(config, writer);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -153,7 +185,6 @@ public class ClearlagCommand {
             JsonObject messages = new JsonObject();
             messages.addProperty("top_coordinates_header", "&6&lTop 10 coordenadas com mais entidades e itens:");
             messages.addProperty("top_coordinates_entry", "&7- &e%s &7- Entidades: &c%d &7- Itens: &c%d");
-            messages.addProperty("warning_250s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &7250 segundos!");
             messages.addProperty("warning_60s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &760 segundos!");
             messages.addProperty("warning_30s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &730 segundos!");
             messages.addProperty("warning_20s", "&4&l[ClearLag] &cAviso: Itens e mobs serão removidos em &720 segundos!");
@@ -192,11 +223,22 @@ public class ClearlagCommand {
             messages.addProperty("module_status_message", "&a&l[ClearLag] &fStatus dos módulos:");
             messages.addProperty("module_entry_message", "&a&l[ClearLag] &fMódulo &c%s &f- &c%s");
             messages.addProperty("toggle_module_message", "&a&l[ClearLag] &fUse /Lagg admin <módulo> para ativar/desativar módulos.");
+            messages.addProperty("ping_message", "&a&l[ClearLag] &fSeu ping: &c%d ms");
+            messages.addProperty("whitelist_add_success", "&aItem &e%s &aadicionado à whitelist!");
+            messages.addProperty("whitelist_remove_success", "&aItem &e%s &aremovido da whitelist!");
+            messages.addProperty("whitelist_item_not_found", "&cO item &e%s &cnão está na whitelist!");
+            messages.addProperty("whitelist_empty", "&aNenhum item na whitelist!");
+            messages.addProperty("whitelist_header", "&6&lItens na whitelist:");
+            messages.addProperty("whitelist_entry", "&7- &e%s");
+            messages.addProperty("hold_item_message", "&cVocê precisa segurar um item na mão!");
             defaultConfig.add("messages", messages);
 
             JsonObject autoRemoval = new JsonObject();
             autoRemoval.addProperty("enabled", true);
             autoRemoval.addProperty("interval", 300);
+            autoRemoval.addProperty("clear_entities", true);
+            autoRemoval.addProperty("clear_items", true);
+            autoRemoval.addProperty("clear_passive_mobs", false);
             defaultConfig.add("auto_removal", autoRemoval);
 
             JsonArray protectedEntitiesArray = new JsonArray();
@@ -223,87 +265,110 @@ public class ClearlagCommand {
         return message.replace('&', '§');
     }
 
-  
+    private static void scheduleAutoClear() {
+        JsonObject autoRemoval = config.getAsJsonObject("auto_removal");
+        if (!autoRemoval.get("enabled").getAsBoolean()) {
+            return;
+        }
 
-	private static void scheduleAutoClear() {
-	    if (!config.getAsJsonObject("auto_removal").get("enabled").getAsBoolean()) {
-	        return;
-	    }
-	
-	    int interval = config.getAsJsonObject("auto_removal").get("interval").getAsInt();
-	    scheduler.scheduleAtFixedRate(() -> {
-	        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-	        if (server == null || server.isStopped()) return;
-	
-	        // Send initial warning with the configured interval
-	        String initialMessage = getInitialWarningMessage(interval);
-	        server.getPlayerList().broadcastSystemMessage(Component.literal(initialMessage), false);
-	
-	        // Schedule intermediate warnings
-	        scheduleWarning(server, interval - 60, "warning_60s");
-	        scheduleWarning(server, interval - 30, "warning_30s");
-	        scheduleWarning(server, interval - 3, "warning_3s");
-	        scheduleWarning(server, interval - 2, "warning_2s");
-	        scheduleWarning(server, interval - 1, "warning_1s");
-	
-	        // Schedule the actual clearing
-	        scheduler.schedule(() -> {
-	            server.executeIfPossible(() -> {
-	                if (server.isStopped()) return;
-	                
-	                int totalItems = 0;
-	                int totalMobs = 0;
-	                
-	                for (ServerLevel world : server.getAllLevels()) {
-	                    if (world != null && !world.isClientSide()) {
-	                        totalItems += clearItems(world);
-	                        totalMobs += killMobs(world);
-	                    }
-	                }
-	                
-	                String resultMsg = String.format(getMessage("cleared_entities"), totalItems, totalMobs);
-	                server.getPlayerList().broadcastSystemMessage(Component.literal(resultMsg), false);
-	            });
-	        }, interval, TimeUnit.SECONDS);
-	    }, interval, interval, TimeUnit.SECONDS);
-	}
-	
-	private static String getInitialWarningMessage(int interval) {
-	    return String.format("§4§l[ClearLag] §cAviso: Limpeza automática ocorrerá em §7%d §csegundos!", interval);
-	}
-	
-	private static void scheduleWarning(MinecraftServer server, int delay, String messageKey) {
-	    if (delay <= 0) return; // Skip if the delay has already passed
-	    
-	    scheduler.schedule(() -> {
-	        server.executeIfPossible(() -> {
-	            if (!server.isStopped()) {
-	                String message = getMessage(messageKey);
-	                server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
-	            }
-	        });
-	    }, delay, TimeUnit.SECONDS);
-	}
+        boolean clearEntities = autoRemoval.get("clear_entities").getAsBoolean();
+        boolean clearItems = autoRemoval.get("clear_items").getAsBoolean();
+        int interval = autoRemoval.get("interval").getAsInt();
 
+        if (!clearEntities && !clearItems) {
+            return;
+        }
 
-    private static void scheduleWarning(ServerLevel world, int time, String messageKey) {
-        scheduler.schedule(() -> broadcastMessage(world, getMessage(messageKey)), time, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(() -> {
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            if (server == null || server.isStopped()) return;
+
+            StringBuilder warningMessage = new StringBuilder();
+            warningMessage.append("§4§l[ClearLag] §cAviso: ");
+            
+            if (clearItems && clearEntities) {
+                warningMessage.append("Itens e mobs serão removidos em ");
+            } else if (clearItems) {
+                warningMessage.append("Itens serão removidos em ");
+            } else if (clearEntities) {
+                warningMessage.append("Mobs serão removidos em ");
+            }
+            
+            warningMessage.append("§7").append(interval).append(" §csegundos!");
+            
+            server.getPlayerList().broadcastSystemMessage(Component.literal(warningMessage.toString()), false);
+
+            scheduleWarning(server, interval - 60, buildWarningMessage(clearItems, clearEntities, 60));
+            scheduleWarning(server, interval - 30, buildWarningMessage(clearItems, clearEntities, 30));
+            scheduleWarning(server, interval - 10, buildWarningMessage(clearItems, clearEntities, 10));
+            scheduleWarning(server, interval - 5, buildWarningMessage(clearItems, clearEntities, 5));
+            scheduleWarning(server, interval - 1, buildWarningMessage(clearItems, clearEntities, 1));
+
+            scheduler.schedule(() -> {
+                server.executeIfPossible(() -> {
+                    if (server.isStopped()) return;
+                    
+                    int totalItems = 0;
+                    int totalMobs = 0;
+                    
+                    for (ServerLevel world : server.getAllLevels()) {
+                        if (world != null && !world.isClientSide()) {
+                            if (clearItems) {
+                                totalItems += clearItems(world);
+                            }
+                            if (clearEntities) {
+                                totalMobs += killMobs(world);
+                            }
+                        }
+                    }
+                    
+                    StringBuilder resultMessage = new StringBuilder();
+                    resultMessage.append("§a§l[ClearLag] §f");
+                    
+                    if (clearItems && clearEntities) {
+                        resultMessage.append(String.format("Foram removidos §c%d §fitens e §c%d §fmobs.", totalItems, totalMobs));
+                    } else if (clearItems) {
+                        resultMessage.append(String.format("Foram removidos §c%d §fitens.", totalItems));
+                    } else if (clearEntities) {
+                        resultMessage.append(String.format("Foram removidos §c%d §fmobs.", totalMobs));
+                    }
+                    
+                    server.getPlayerList().broadcastSystemMessage(Component.literal(resultMessage.toString()), false);
+                });
+            }, interval, TimeUnit.SECONDS);
+        }, interval, interval, TimeUnit.SECONDS);
     }
 
+    private static String buildWarningMessage(boolean clearItems, boolean clearEntities, int seconds) {
+        StringBuilder message = new StringBuilder();
+        message.append("§4§l[ClearLag] §cAviso: ");
+        
+        if (clearItems && clearEntities) {
+            message.append("Itens e mobs serão removidos em ");
+        } else if (clearItems) {
+            message.append("Itens serão removidos em ");
+        } else if (clearEntities) {
+            message.append("Mobs serão removidos em ");
+        }
+        
+        message.append("§7").append(seconds).append(" §c");
+        message.append(seconds == 1 ? "segundo!" : "segundos!");
+        
+        return message.toString();
+    }
 
-	private static void broadcastMessage(ServerLevel world, String message) {
-	    if (world == null || world.isClientSide()) return;
-	    
-	    MinecraftServer server = world.getServer();
-	    if (server == null || server.isStopped()) return;
-	
-	    // Converte a mensagem com cores e formatação
-	    Component text = Component.literal(message.replace('&', '§'));
-	    
-	    // Usa o sistema de broadcast seguro do Minecraft
-	    server.getPlayerList().broadcastSystemMessage(text, false);
-	}
-	
+    private static void scheduleWarning(MinecraftServer server, int delay, String message) {
+        if (delay <= 0) return;
+        
+        scheduler.schedule(() -> {
+            server.executeIfPossible(() -> {
+                if (!server.isStopped()) {
+                    server.getPlayerList().broadcastSystemMessage(Component.literal(message), false);
+                }
+            });
+        }, delay, TimeUnit.SECONDS);
+    }
+
     private static int clearItems(ServerLevel world) {
         List<Entity> entities = new ArrayList<>();
         world.getEntities().getAll().forEach(entities::add);
@@ -323,10 +388,12 @@ public class ClearlagCommand {
     }
 
     private static int killMobs(ServerLevel world) {
+        boolean clearPassive = config.getAsJsonObject("auto_removal").get("clear_passive_mobs").getAsBoolean();
         List<Entity> entities = Lists.newArrayList(world.getEntities().getAll());
         int killedMobs = 0;
+
         for (Entity entity : entities) {
-            if (isNonPassiveMob(entity) && !isProtectedEntity(entity)) {
+            if ((clearPassive || isNonPassiveMob(entity)) && !isProtectedEntity(entity)) {
                 entity.remove(Entity.RemovalReason.DISCARDED);
                 killedMobs++;
             }
@@ -344,6 +411,12 @@ public class ClearlagCommand {
             return false;
         }
 
+        // Se a configuração clear_passive_mobs estiver ativa, matar todos os mobs
+        if (config.getAsJsonObject("auto_removal").get("clear_passive_mobs").getAsBoolean()) {
+            return true;
+        }
+
+        // Caso contrário, manter o comportamento original
         return switch (mob.getType().getCategory()) {
             case CREATURE, AMBIENT, WATER_AMBIENT -> false;
             default -> true;
@@ -352,53 +425,73 @@ public class ClearlagCommand {
 
     private static int clearEntities(CommandSourceStack source) {
         ServerLevel world = source.getLevel();
+        JsonObject autoRemoval = config.getAsJsonObject("auto_removal");
+        boolean clearEntities = autoRemoval.get("clear_entities").getAsBoolean();
+        boolean clearItems = autoRemoval.get("clear_items").getAsBoolean();
+
         List<Entity> entities = new ArrayList<>();
         world.getEntities().getAll().forEach(entities::add);
         int removedEntities = 0;
         entityCounts.clear();
+        
         for (Entity entity : entities) {
-            if (shouldRemoveEntity(entity)) {
+            if (shouldRemoveEntity(entity, clearItems, clearEntities)) {
                 entity.remove(Entity.RemovalReason.DISCARDED);
                 removedEntities++;
                 String entityType = entity.getClass().getSimpleName();
                 entityCounts.put(entityType, entityCounts.getOrDefault(entityType, 0) + 1);
             }
         }
-        sendFeedback(source, removedEntities);
+        
+        sendFeedback(source, removedEntities, clearItems, clearEntities);
         return removedEntities;
     }
 
-    private static boolean shouldRemoveEntity(Entity entity) {
+    private static boolean shouldRemoveEntity(Entity entity, boolean clearItems, boolean clearEntities) {
         if (entity instanceof Player || entity instanceof ServerPlayer) {
             return false;
         }
         
         if (entity instanceof ItemEntity) {
-            return !isProtectedItem((ItemEntity) entity);
+            return clearItems && !isProtectedItem((ItemEntity) entity);
         }
         
         if (entity instanceof LivingEntity) {
-            return !isProtectedEntity(entity) && isNonPassiveMob(entity);
+            return clearEntities && !isProtectedEntity(entity) && isNonPassiveMob(entity);
         }
         
-        return entity instanceof ExperienceOrb || 
-               entity instanceof PrimedTnt || 
-               entity instanceof Projectile || 
-               entity instanceof Boat || 
-               entity instanceof Minecart || 
-               entity instanceof Painting || 
-               entity instanceof ItemFrame;
+        return (clearItems || clearEntities) && 
+               (entity instanceof ExperienceOrb || 
+                entity instanceof PrimedTnt || 
+                entity instanceof Projectile || 
+                entity instanceof Boat || 
+                entity instanceof Minecart || 
+                entity instanceof Painting || 
+                entity instanceof ItemFrame);
     }
 
-    private static void sendFeedback(CommandSourceStack source, int removedEntities) {
-        source.sendSuccess(() -> Component.literal(String.format(getMessage("feedback_message"), removedEntities)), true);
-        for (Map.Entry<String, Integer> entry : entityCounts.entrySet()) {
-            source.sendSuccess(() -> Component.literal(String.format(getMessage("entity_removed_message"), entry.getValue(), entry.getKey())), true);
+    private static void sendFeedback(CommandSourceStack source, int removedEntities, boolean clearItems, boolean clearEntities) {
+        StringBuilder feedback = new StringBuilder();
+        feedback.append("§a§l[ClearLag] §f");
+        
+        if (clearItems && clearEntities) {
+            feedback.append(String.format("Foram removidas §c%d §fentidades.", removedEntities));
+        } else if (clearItems) {
+            feedback.append(String.format("Foram removidos §c%d §fitens.", removedEntities));
+        } else if (clearEntities) {
+            feedback.append(String.format("Foram removidos §c%d §fmobs.", removedEntities));
         }
+        
+        source.sendSuccess(() -> Component.literal(feedback.toString()), true);
+        
+        for (Map.Entry<String, Integer> entry : entityCounts.entrySet()) {
+            source.sendSuccess(() -> Component.literal(String.format("§a§l[ClearLag] §fRemovidos §c%d §fentidades do tipo §c%s.", entry.getValue(), entry.getKey())), true);
+        }
+        
         if (source.getLevel() instanceof ServerLevel) {
             ServerLevel world = (ServerLevel) source.getLevel();
             world.getPlayers(player -> true).forEach(player -> 
-                player.sendSystemMessage(Component.literal(String.format(getMessage("broadcast_message"), removedEntities))));
+                player.sendSystemMessage(Component.literal(feedback.toString())));
         }
     }
 
@@ -420,14 +513,14 @@ public class ClearlagCommand {
         return 1;
     }
 
-	private static int checkTPS(CommandSourceStack source) {
-	    MinecraftServer server = source.getServer();
-	    double tps = 1000.0 / Math.max(50, server.getAverageTickTime());
-	    tps = Math.min(20.0, tps);
-	    final double finalTps = tps; // Create final copy
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("tps_message"), finalTps)), true);
-	    return (int) tps;
-	}
+    private static int checkTPS(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        double tps = 1000.0 / Math.max(50, server.getAverageTickTime());
+        tps = Math.min(20.0, tps);
+        final double finalTps = tps;
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("tps_message"), finalTps)), true);
+        return (int) tps;
+    }
 
     private static int sampleMemory(CommandSourceStack source, int time) {
         Runtime runtime = Runtime.getRuntime();
@@ -465,26 +558,26 @@ public class ClearlagCommand {
         return 1;
     }
 
-	private static int viewPerformance(CommandSourceStack source) {
-	    MinecraftServer server = source.getServer();
-	    double tps = 1000.0 / Math.max(50, server.getAverageTickTime());
-	    tps = Math.min(20.0, tps);
-	    Runtime runtime = Runtime.getRuntime();
-	    long maxMemory = runtime.maxMemory() / 1024 / 1024;
-	    long allocatedMemory = runtime.totalMemory() / 1024 / 1024;
-	    long freeMemory = runtime.freeMemory() / 1024 / 1024;
-	    
-	    final double finalTps = tps; // Create final copies
-	    final long finalMaxMemory = maxMemory;
-	    final long finalAllocatedMemory = allocatedMemory;
-	    final long finalFreeMemory = freeMemory;
-	    
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("tps_message"), finalTps)), true);
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("max_memory"), finalMaxMemory)), true);
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("allocated_memory"), finalAllocatedMemory)), true);
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("free_memory"), finalFreeMemory)), true);
-	    return 1;
-	}
+    private static int viewPerformance(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        double tps = 1000.0 / Math.max(50, server.getAverageTickTime());
+        tps = Math.min(20.0, tps);
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory() / 1024 / 1024;
+        long allocatedMemory = runtime.totalMemory() / 1024 / 1024;
+        long freeMemory = runtime.freeMemory() / 1024 / 1024;
+        
+        final double finalTps = tps;
+        final long finalMaxMemory = maxMemory;
+        final long finalAllocatedMemory = allocatedMemory;
+        final long finalFreeMemory = freeMemory;
+        
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("tps_message"), finalTps)), true);
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("max_memory"), finalMaxMemory)), true);
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("allocated_memory"), finalAllocatedMemory)), true);
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("free_memory"), finalFreeMemory)), true);
+        return 1;
+    }
 
     private static int toggleHalt(CommandSourceStack source) {
         haltEnabled = !haltEnabled;
@@ -502,46 +595,42 @@ public class ClearlagCommand {
         return 1;
     }
     
-	private static int killMobs(CommandSourceStack source) {
-	    ServerLevel world = source.getLevel();
-	    List<Entity> entities = Lists.newArrayList(world.getEntities().getAll());
-	    int killedMobs = 0;
-	
-	    for (Entity entity : entities) {
-	        if (isNonPassiveMob(entity) && !isProtectedEntity(entity)) {
-	            entity.remove(Entity.RemovalReason.DISCARDED);
-	            killedMobs++;
-	        }
-	    }
-	
-	    final int finalKilledMobs = killedMobs; // Create final copy
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("kill_mobs_message"), finalKilledMobs)), true);
-	    return killedMobs;
-	}
-	
-	private static int clearArea(CommandSourceStack source, int radius) {
-	    ServerLevel world = source.getLevel();
-	    Entity player = source.getEntity();
-	    List<Entity> entities = new ArrayList<>();
-	    world.getEntities().getAll().forEach(entities::add);
-	    int removedEntities = 0;
-	    for (Entity entity : entities) {
-	        if (player.distanceToSqr(entity) <= radius * radius && shouldRemoveEntity(entity)) {
-	            entity.remove(Entity.RemovalReason.DISCARDED);
-	            removedEntities++;
-	        }
-	    }
-	
-	    final int finalRemovedEntities = removedEntities; // Create final copies
-	    final int finalRadius = radius;
-	    source.sendSuccess(() -> Component.literal(String.format(getMessage("clear_area_message"), finalRemovedEntities, finalRadius)), true);
-	    return removedEntities;
-	}
-
-
-
-
-
+    private static int killMobs(CommandSourceStack source) {
+        ServerLevel world = source.getLevel();
+        boolean clearPassive = config.getAsJsonObject("auto_removal").get("clear_passive_mobs").getAsBoolean();
+        List<Entity> entities = Lists.newArrayList(world.getEntities().getAll());
+        int killedMobs = 0;
+    
+        for (Entity entity : entities) {
+            if ((clearPassive || isNonPassiveMob(entity)) && !isProtectedEntity(entity)) {
+                entity.remove(Entity.RemovalReason.DISCARDED);
+                killedMobs++;
+            }
+        }
+    
+        final int finalKilledMobs = killedMobs;
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("kill_mobs_message"), finalKilledMobs)), true);
+        return killedMobs;
+    }
+    
+    private static int clearArea(CommandSourceStack source, int radius) {
+        ServerLevel world = source.getLevel();
+        Entity player = source.getEntity();
+        List<Entity> entities = new ArrayList<>();
+        world.getEntities().getAll().forEach(entities::add);
+        int removedEntities = 0;
+        for (Entity entity : entities) {
+            if (player.distanceToSqr(entity) <= radius * radius && shouldRemoveEntity(entity, true, true)) {
+                entity.remove(Entity.RemovalReason.DISCARDED);
+                removedEntities++;
+            }
+        }
+    
+        final int finalRemovedEntities = removedEntities;
+        final int finalRadius = radius;
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("clear_area_message"), finalRemovedEntities, finalRadius)), true);
+        return removedEntities;
+    }
 
     private static int forceGarbageCollection(CommandSourceStack source) {
         System.gc();
@@ -580,41 +669,113 @@ public class ClearlagCommand {
         return 1;
     }
 
-    private static int listTopEntitiesAndItems(CommandSourceStack source) {
-        ServerLevel world = source.getLevel();
-        List<Entity> entities = new ArrayList<>();
-        world.getEntities().getAll().forEach(entities::add);
+	private static int listTopEntitiesAndItems(CommandSourceStack source) {
+	    ServerLevel world = source.getLevel();
+	    Map<String, CoordinateData> coordinateMap = new HashMap<>();
+	
+	    // Agrupar entidades e itens por coordenadas
+	    for (Entity entity : world.getEntities().getAll()) {
+	        int x = (int) entity.getX();
+	        int y = (int) entity.getY();
+	        int z = (int) entity.getZ();
+	        String coordKey = x + ";" + y + ";" + z;
+	
+	        CoordinateData data = coordinateMap.computeIfAbsent(coordKey, k -> new CoordinateData(x, y, z));
+	
+	        if (entity instanceof ItemEntity) {
+	            data.itemCount += ((ItemEntity) entity).getItem().getCount();
+	        } else if (!(entity instanceof Player)) {
+	            data.entityCount++;
+	        }
+	    }
+	
+	    // Converter para lista e ordenar pelo total de entidades + itens
+	    List<CoordinateData> sortedCoordinates = new ArrayList<>(coordinateMap.values());
+	    sortedCoordinates.sort((a, b) -> {
+	        int totalA = a.entityCount + a.itemCount;
+	        int totalB = b.entityCount + b.itemCount;
+	        return Integer.compare(totalB, totalA); // Ordem decrescente
+	    });
+	
+	    // Enviar cabeçalho
+	    source.sendSuccess(() -> Component.literal("§6§lTop 10 Coordenadas com mais entidades e itens:"), false);
+	
+	    // Mostrar top 10 - Criando variáveis finais para uso no lambda
+	    for (int i = 0; i < Math.min(10, sortedCoordinates.size()); i++) {
+	        final int index = i + 1; // Variável final para o índice
+	        final CoordinateData data = sortedCoordinates.get(i); // Variável final para os dados
+	        
+	        source.sendSuccess(() -> Component.literal(String.format(
+	            "§e%d. §7X: §b%d §7Y: §b%d §7Z: §b%d §7- Entidades: §c%d §7- Itens: §c%d",
+	            index, data.x, data.y, data.z, data.entityCount, data.itemCount
+	        )), false);
+	    }
+	
+	    return 1;
+	}
 
-        Map<String, Integer> entityCounts = new HashMap<>();
-        Map<String, Integer> itemCounts = new HashMap<>();
-
-        for (Entity entity : entities) {
-            if (entity instanceof ItemEntity) {
-                ItemStack itemStack = ((ItemEntity) entity).getItem();
-                String itemName = itemStack.getItem().getDescription().getString();
-                itemCounts.put(itemName, itemCounts.getOrDefault(itemName, 0) + itemStack.getCount());
-            } else if (!(entity instanceof Player)) {
-                String entityName = entity.getType().getDescription().getString();
-                entityCounts.put(entityName, entityCounts.getOrDefault(entityName, 0) + 1);
-            }
+    private static int addHeldItemToWhitelist(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal(getMessage("player_only_command")));
+            return 0;
         }
 
-        List<Map.Entry<String, Integer>> sortedEntities = new ArrayList<>(entityCounts.entrySet());
-        sortedEntities.sort((entry1, entry2) -> entry2.getValue().compareTo(entry1.getValue()));
-
-        List<Map.Entry<String, Integer>> sortedItems = new ArrayList<>(itemCounts.entrySet());
-        sortedItems.sort((entry1, entry2) -> entry2.getValue().compareTo(entry1.getValue()));
-
-        source.sendSuccess(() -> Component.literal(getMessage("top_coordinates_header")), true);
-        for (int i = 0; i < Math.min(10, sortedEntities.size()); i++) {
-            Map.Entry<String, Integer> entry = sortedEntities.get(i);
-            source.sendSuccess(() -> Component.literal(String.format(getMessage("top_coordinates_entry"), entry.getKey(), entry.getValue())), true);
-        }
-        for (int i = 0; i < Math.min(10, sortedItems.size()); i++) {
-            Map.Entry<String, Integer> entry = sortedItems.get(i);
-            source.sendSuccess(() -> Component.literal(String.format(getMessage("top_coordinates_entry"), entry.getKey(), entry.getValue())), true);
+        ItemStack heldItem = player.getMainHandItem();
+        if (heldItem.isEmpty()) {
+            source.sendFailure(Component.literal(getMessage("hold_item_message")));
+            return 0;
         }
 
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(heldItem.getItem());
+        protectedItems.add(itemId.toString());
+
+        // Atualizar a configuração
+        JsonArray protectedItemsArray = new JsonArray();
+        protectedItems.forEach(protectedItemsArray::add);
+        config.add("protected_items", protectedItemsArray);
+        saveConfig();
+
+        source.sendSuccess(() -> Component.literal(String.format(getMessage("whitelist_add_success"), itemId)), true);
+        return 1;
+    }
+
+    private static int removeHeldItemFromWhitelist(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal(getMessage("player_only_command")));
+            return 0;
+        }
+
+        ItemStack heldItem = player.getMainHandItem();
+        if (heldItem.isEmpty()) {
+            source.sendFailure(Component.literal(getMessage("hold_item_message")));
+            return 0;
+        }
+
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(heldItem.getItem());
+        if (protectedItems.remove(itemId.toString())) {
+            // Atualizar a configuração
+            JsonArray protectedItemsArray = new JsonArray();
+            protectedItems.forEach(protectedItemsArray::add);
+            config.add("protected_items", protectedItemsArray);
+            saveConfig();
+
+            source.sendSuccess(() -> Component.literal(String.format(getMessage("whitelist_remove_success"), itemId)), true);
+        } else {
+            source.sendFailure(Component.literal(String.format(getMessage("whitelist_item_not_found"), itemId)));
+        }
+        return 1;
+    }
+
+    private static int listWhitelistedItems(CommandSourceStack source) {
+        if (protectedItems.isEmpty()) {
+            source.sendSuccess(() -> Component.literal(getMessage("whitelist_empty")), false);
+            return 1;
+        }
+
+        source.sendSuccess(() -> Component.literal(getMessage("whitelist_header")), false);
+        protectedItems.forEach(item -> 
+            source.sendSuccess(() -> Component.literal(String.format(getMessage("whitelist_entry"), item)), false)
+        );
         return 1;
     }
 }
