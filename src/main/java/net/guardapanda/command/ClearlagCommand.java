@@ -1,3 +1,4 @@
+
 package net.guardapanda.command;
 
 import net.minecraftforge.fml.common.Mod;
@@ -48,6 +49,7 @@ import java.io.File;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonObject;
@@ -137,26 +139,41 @@ public class ClearlagCommand {
         File configFile = new File("config/guardapanda/clearlag_config.json");
         if (!configFile.exists()) {
             generateDefaultConfig();
+            config = new JsonObject();
+            return;
         }
 
         try (FileReader reader = new FileReader(configFile)) {
-            config = JsonParser.parseReader(reader).getAsJsonObject();
+            JsonElement parsed = JsonParser.parseReader(reader);
+            config = parsed.getAsJsonObject();
             
             protectedEntities.clear();
             if (config.has("protected_entities")) {
                 JsonArray protectedEntitiesArray = config.getAsJsonArray("protected_entities");
-                protectedEntitiesArray.forEach(element -> protectedEntities.add(element.getAsString()));
+                protectedEntitiesArray.forEach(element -> {
+                    if (element.isJsonPrimitive()) {
+                        protectedEntities.add(element.getAsString());
+                    }
+                });
             }
             
             protectedItems.clear();
             if (config.has("protected_items")) {
                 JsonArray protectedItemsArray = config.getAsJsonArray("protected_items");
-                protectedItemsArray.forEach(element -> protectedItems.add(element.getAsString()));
+                protectedItemsArray.forEach(element -> {
+                    if (element.isJsonPrimitive()) {
+                        protectedItems.add(element.getAsString());
+                    }
+                });
             }
-        } catch (IOException e) {
+        } catch (IOException | JsonSyntaxException e) {
+
+            System.err.println("[ClearLag] Erro ao carregar configuração:");
             e.printStackTrace();
+            config = new JsonObject();
         }
     }
+
 
     private static void saveConfig() {
         File configFile = new File("config/guardapanda/clearlag_config.json");
@@ -260,20 +277,39 @@ public class ClearlagCommand {
         }
     }
 
-    private static String getMessage(String key) {
-        String message = config.getAsJsonObject("messages").get(key).getAsString();
-        return message.replace('&', '§');
+	private static String getMessage(String key) {
+    if (config == null || !config.has("messages")) {
+        return "§cConfiguration error";
     }
+    
+    JsonObject messages = config.getAsJsonObject("messages");
+    if (messages == null || !messages.has(key)) {
+        return "§cMessage not found: " + key;
+    }
+    
+    JsonElement messageElement = messages.get(key);
+    if (messageElement == null || !messageElement.isJsonPrimitive()) {
+        return "§cInvalid message: " + key;
+    }
+    
+    return messageElement.getAsString().replace('&', '§');
+	}
 
     private static void scheduleAutoClear() {
-        JsonObject autoRemoval = config.getAsJsonObject("auto_removal");
-        if (!autoRemoval.get("enabled").getAsBoolean()) {
+        if (config == null || !config.has("auto_removal")) {
             return;
         }
 
-        boolean clearEntities = autoRemoval.get("clear_entities").getAsBoolean();
-        boolean clearItems = autoRemoval.get("clear_items").getAsBoolean();
-        int interval = autoRemoval.get("interval").getAsInt();
+        JsonObject autoRemoval = config.getAsJsonObject("auto_removal");
+        if (autoRemoval == null || 
+            !autoRemoval.has("enabled") || 
+            !autoRemoval.get("enabled").getAsBoolean()) {
+            return;
+        }
+
+        boolean clearEntities = autoRemoval.has("clear_entities") && autoRemoval.get("clear_entities").getAsBoolean();
+        boolean clearItems = autoRemoval.has("clear_items") && autoRemoval.get("clear_items").getAsBoolean();
+        int interval = autoRemoval.has("interval") ? autoRemoval.get("interval").getAsInt() : 300;
 
         if (!clearEntities && !clearItems) {
             return;
