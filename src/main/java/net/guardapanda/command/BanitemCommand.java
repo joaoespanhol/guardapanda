@@ -186,8 +186,8 @@ public class BanitemCommand {
 
     private static BanConfig config = new BanConfig();
     private static final Map<String, Map<String, Long>> temporaryPermissions = new HashMap<>();
-    private static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve("guardapanda/banitem.json");
-    private static final Path PERMISSIONS_PATH = FMLPaths.CONFIGDIR.get().resolve("guardapanda/banitem_permissions.json");
+    private static final Path CONFIG_PATH = FMLPaths.CONFIGDIR.get().resolve("guardapanda/banitems.json");
+    private static final Path PERMISSIONS_PATH = FMLPaths.CONFIGDIR.get().resolve("guardapanda/banitems_permissions.json");
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .disableHtmlEscaping()
@@ -284,61 +284,76 @@ public class BanitemCommand {
         return worldBans.items.computeIfAbsent(itemId, k -> new FlagList());
     }
 
-    @SubscribeEvent
-    public static void registerCommand(RegisterCommandsEvent event) {
-        event.getDispatcher().register(
-            Commands.literal("banitem")
-                .requires(source -> source.hasPermission(2))
-                
-                .then(Commands.literal("add")
-                    .then(Commands.argument("flag", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            builder.suggest("ALL");
-                            ALL_FLAGS.forEach(builder::suggest);
-                            return builder.buildFuture();
-                        })
-                        .then(Commands.argument("message", StringArgumentType.greedyString())
-                            .executes(ctx -> {
-                                String flag = StringArgumentType.getString(ctx, "flag");
-                                String message = StringArgumentType.getString(ctx, "message");
-                                if (message.startsWith("\"") && message.endsWith("\"")) {
-                                    message = message.substring(1, message.length() - 1);
-                                }
-                                return banItemInHand(ctx, flag, message);
-                            })
-                        )
-                        .executes(ctx -> banItemInHand(ctx, StringArgumentType.getString(ctx, "flag"), null))
-                    )
-                )
-                .then(Commands.literal("remove")
-                    .executes(ctx -> removeItemInHand(ctx))
-                    .then(Commands.argument("item", StringArgumentType.string())
-                        .executes(ctx -> removeBannedItem(ctx, StringArgumentType.getString(ctx, "item")))
-                )
-                .then(Commands.literal("list")
-                    .executes(ctx -> listBannedItems(ctx))
-                )
-                .then(Commands.literal("flags")
-                    .executes(ctx -> listAllFlags(ctx))
-                )
-                .then(Commands.literal("reload")
-                    .executes(ctx -> reloadConfig(ctx))
-                )
-                .then(Commands.literal("perm")
-                    .then(Commands.argument("player", EntityArgument.player())
-                        .then(Commands.argument("tempo", StringArgumentType.string())
-                            .executes(ctx -> giveTemporaryPermission(
-                                ctx,
-                                EntityArgument.getPlayer(ctx, "player"),
-                                StringArgumentType.getString(ctx, "tempo")
-                            ))
-                        )
-                    )
-                )
-        ));
-    }
+	
+	
+	@SubscribeEvent
+	public static void registerCommand(RegisterCommandsEvent event) {
+	    event.getDispatcher().register(
+	        Commands.literal("banitems")
+	
+	            .then(Commands.literal("add")
+	                    .requires(source -> source.hasPermission(2))
+	                .then(Commands.argument("flag", StringArgumentType.word())
+	                    .suggests((ctx, builder) -> {
+	                        builder.suggest("ALL");
+	                        ALL_FLAGS.forEach(builder::suggest);
+	                        return builder.buildFuture();
+	                    })
+	                    .then(Commands.argument("message", StringArgumentType.greedyString())
+	                        .executes(ctx -> {
+	                            String flag = StringArgumentType.getString(ctx, "flag");
+	                            String message = StringArgumentType.getString(ctx, "message");
+	                            if (message.startsWith("\"") && message.endsWith("\"")) {
+	                                message = message.substring(1, message.length() - 1);
+	                            }
+	                            return banitemsInHand(ctx, flag, message);
+	                        })
+	                    )
+	                    .executes(ctx -> banitemsInHand(ctx, StringArgumentType.getString(ctx, "flag"), null))
+	                )
+	            )
+	
+	            .then(Commands.literal("remove")
+	                    .requires(source -> source.hasPermission(2))
+	                .executes(ctx -> removeItemInHand(ctx))
+	                .then(Commands.argument("item", StringArgumentType.string())
+	                    .executes(ctx -> removeBannedItem(ctx, StringArgumentType.getString(ctx, "item")))
+	                )
+	            )
+	
+	            .then(Commands.literal("list")
+	                .executes(ctx -> listBannedItems(ctx))
+	            )
+	
+	            .then(Commands.literal("flags")
+	                    .requires(source -> source.hasPermission(2))
+	                .executes(ctx -> listAllFlags(ctx))
+	            )
+	
+	            .then(Commands.literal("reload")
+	                    .requires(source -> source.hasPermission(2))
+	                .executes(ctx -> reloadConfig(ctx))
+	            )
+	
+	            .then(Commands.literal("perm")
+	                    .requires(source -> source.hasPermission(2))
+	                .then(Commands.argument("player", EntityArgument.player())
+	                    .then(Commands.argument("tempo", StringArgumentType.string())
+	                        .executes(ctx -> giveTemporaryPermission(
+	                            ctx,
+	                            EntityArgument.getPlayer(ctx, "player"),
+	                            StringArgumentType.getString(ctx, "tempo")
+	                        ))
+	                    )
+	                )
+	            )
+	    );
+	}
 
-    private static int banItemInHand(CommandContext<CommandSourceStack> ctx, String flag, String message) throws CommandSyntaxException {
+
+
+
+    private static int banitemsInHand(CommandContext<CommandSourceStack> ctx, String flag, String message) throws CommandSyntaxException {
         Player player = ctx.getSource().getPlayerOrException();
         ItemStack itemInHand = player.getMainHandItem();
         
@@ -352,7 +367,7 @@ public class BanitemCommand {
         String finalFlag = flag.toLowerCase();
         
         if (!ALL_FLAGS.contains(finalFlag) && !flag.equalsIgnoreCase("ALL")) {
-            ctx.getSource().sendFailure(Component.literal("§cFlag inválida! Use /banitem flags para ver todas as flags disponíveis."));
+            ctx.getSource().sendFailure(Component.literal("§cFlag inválida! Use /banitems flags para ver todas as flags disponíveis."));
             return 0;
         }
         
@@ -537,8 +552,8 @@ public class BanitemCommand {
     private static int listAllFlags(CommandContext<CommandSourceStack> ctx) {
         ctx.getSource().sendSuccess(() -> Component.literal("§6=== Flags Disponíveis ==="), false);
         ctx.getSource().sendSuccess(() -> Component.literal("§e" + String.join(", ", ALL_FLAGS)), false);
-        ctx.getSource().sendSuccess(() -> Component.literal("§7Use §a/banitem add <flag> [mensagem] §7para banir um item"), false);
-        ctx.getSource().sendSuccess(() -> Component.literal("§7Exemplo: §a/banitem add pickup \"Não pode pegar este item!\""), false);
+        ctx.getSource().sendSuccess(() -> Component.literal("§7Use §a/banitems add <flag> [mensagem] §7para banir um item"), false);
+        ctx.getSource().sendSuccess(() -> Component.literal("§7Exemplo: §a/banitems add pickup \"Não pode pegar este item!\""), false);
         return 1;
     }
 
