@@ -113,14 +113,14 @@ public class WorldguardCommand {
         }
 
         private void initializeDefaultFlags() {
-            // Flags de proteção
+            // Protection flags
             flags.putIfAbsent("build", false);
             flags.putIfAbsent("block-place", false);
             flags.putIfAbsent("block-break", false);
             flags.putIfAbsent("destroy", false);
             flags.putIfAbsent("mod-interaction", false);
             
-            // Flags de interação
+            // Interaction flags
             flags.putIfAbsent("interact", false);
             flags.putIfAbsent("use", false);
             flags.putIfAbsent("chest-access", false);
@@ -131,32 +131,32 @@ public class WorldguardCommand {
             flags.putIfAbsent("use-anvil", false);
             flags.putIfAbsent("container-access", false);
             
-            // Flags de entidades
+            // Entity flags
             flags.putIfAbsent("mob-spawning", false);
             flags.putIfAbsent("mob-damage", false);
             flags.putIfAbsent("pvp", false);
             flags.putIfAbsent("damage-animals", false);
             
-            // Flags de explosões e danos
+            // Explosion and damage flags
             flags.putIfAbsent("creeper-explosion", false);
             flags.putIfAbsent("other-explosion", false);
             flags.putIfAbsent("tnt", false);
             flags.putIfAbsent("fire-spread", false);
             
-            // Flags de comunicação
+            // Communication flags
             flags.putIfAbsent("send-chat", true);
             flags.putIfAbsent("receive-chat", true);
             
-            // Flags de movimento
+            // Movement flags
             flags.putIfAbsent("teleport", false);
             flags.putIfAbsent("entry", true);
             
-            // Outras flags
+            // Other flags
             flags.putIfAbsent("invincible", false);
             flags.putIfAbsent("item-pickup", true);
             flags.putIfAbsent("item-drop", true);
             
-            // Flags padrão para membros
+            // Default member flags
             memberFlags.put("build", false);
             memberFlags.put("block-break", false);
             memberFlags.put("block-place", false);
@@ -213,36 +213,46 @@ public class WorldguardCommand {
         }
         
         public void setEnterMessage(String message) {
-            this.enterMessage = message;
+            this.enterMessage = message != null ? message : "";
         }
         
         public void setExitMessage(String message) {
-            this.exitMessage = message;
+            this.exitMessage = message != null ? message : "";
         }
         
         public void allowEntity(String entityName) {
-            allowedEntities.add(entityName.toLowerCase());
+            if (entityName != null) {
+                allowedEntities.add(entityName.toLowerCase());
+            }
         }
         
         public void disallowEntity(String entityName) {
-            allowedEntities.remove(entityName.toLowerCase());
+            if (entityName != null) {
+                allowedEntities.remove(entityName.toLowerCase());
+            }
         }
         
         public void allowPlayer(String playerName) {
-            allowedPlayers.add(playerName.toLowerCase());
+            if (playerName != null) {
+                allowedPlayers.add(playerName.toLowerCase());
+            }
         }
         
         public void disallowPlayer(String playerName) {
-            allowedPlayers.remove(playerName.toLowerCase());
+            if (playerName != null) {
+                allowedPlayers.remove(playerName.toLowerCase());
+            }
         }
         
         public boolean isEntityAllowed(String entityName) {
-            return allowedEntities.isEmpty() || allowedEntities.contains(entityName.toLowerCase());
+            return entityName != null && 
+                   (allowedEntities.isEmpty() || allowedEntities.contains(entityName.toLowerCase()));
         }
         
         public boolean isPlayerAllowed(String playerName) {
-            return allowedPlayers == null || allowedPlayers.isEmpty() || 
-                   allowedPlayers.contains(playerName.toLowerCase());
+            return playerName != null && 
+                   (allowedPlayers == null || allowedPlayers.isEmpty() || 
+                   allowedPlayers.contains(playerName.toLowerCase()));
         }
     }
 
@@ -318,6 +328,8 @@ public class WorldguardCommand {
                     if (region.blockedCommands == null) region.blockedCommands = new HashSet<>();
                     if (region.allowedEntities == null) region.allowedEntities = new HashSet<>();
                     if (region.allowedPlayers == null) region.allowedPlayers = new HashSet<>();
+                    if (region.enterMessage == null) region.enterMessage = "";
+                    if (region.exitMessage == null) region.exitMessage = "";
                     protectedRegions.put(entry.getKey(), region);
                 }
             } catch (IOException e) {
@@ -338,7 +350,7 @@ public class WorldguardCommand {
                 e.printStackTrace();
             }
         } else {
-            // Itens banidos padrão
+            // Default banned items
             bannedModItems.addAll(Arrays.asList(
                 "create:drill",
                 "create:mechanical_drill",
@@ -722,10 +734,10 @@ public class WorldguardCommand {
                                 }
                             }
                             
-                            if (!region.enterMessage.isEmpty()) {
+                            if (region.enterMessage != null && !region.enterMessage.isEmpty()) {
                                 player.sendSystemMessage(Component.literal("Mensagem de entrada: " + region.enterMessage));
                             }
-                            if (!region.exitMessage.isEmpty()) {
+                            if (region.exitMessage != null && !region.exitMessage.isEmpty()) {
                                 player.sendSystemMessage(Component.literal("Mensagem de saída: " + region.exitMessage));
                             }
                             
@@ -852,7 +864,7 @@ public class WorldguardCommand {
         Player player = event.getPlayer();
         BlockPos pos = event.getPos();
 
-        // Verifica fake players (como do Create)
+        // Check for fake players (like from Create)
         if (player instanceof FakePlayer) {
             if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
                 event.setCanceled(true);
@@ -860,7 +872,7 @@ public class WorldguardCommand {
             }
         }
 
-        // Verifica se está usando item de mod banido
+        // Check if using banned mod item
         if (isBannedModItem(player.getMainHandItem())) {
             if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
                 event.setCanceled(true);
@@ -869,7 +881,7 @@ public class WorldguardCommand {
             }
         }
 
-        // Verificação normal de proteção
+        // Normal protection check
         if (isRegionProtected(pos)) {
             if (!isFlagEnabled(pos, "block-break", player) || !isFlagEnabled(pos, "destroy", player)) {
                 event.setCanceled(true);
@@ -884,7 +896,7 @@ public class WorldguardCommand {
             Player player = (Player) event.getEntity();
             BlockPos pos = event.getPos();
 
-            // Verifica fake players (como do Create)
+            // Check for fake players (like from Create)
             if (player instanceof FakePlayer) {
                 if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
                     event.setCanceled(true);
@@ -892,7 +904,7 @@ public class WorldguardCommand {
                 }
             }
 
-            // Verifica se está usando item de mod banido
+            // Check if using banned mod item
             if (isBannedModItem(player.getMainHandItem())) {
                 if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
                     event.setCanceled(true);
@@ -935,7 +947,7 @@ public class WorldguardCommand {
 	        }
 	    }
 	
-	    // Verifica interação com bigornas
+	    // Check interaction with anvils
 	    if (state.getBlock() instanceof AnvilBlock) {
 	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "use-anvil", player)) {
 	            event.setCanceled(true);
@@ -944,7 +956,7 @@ public class WorldguardCommand {
 	        }
 	    }
 	
-	    // Verifica fake players (como do Create)
+	    // Check for fake players (like from Create)
 	    if (player instanceof FakePlayer) {
 	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
 	            event.setCanceled(true);
@@ -952,7 +964,7 @@ public class WorldguardCommand {
 	        }
 	    }
 	
-	    // Verifica itens de mods banidos
+	    // Check banned mod items
 	    if (isBannedModItem(player.getMainHandItem())) {
 	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
 	            event.setCanceled(true);
@@ -960,7 +972,6 @@ public class WorldguardCommand {
 	        }
 	    }
 	}
-
 
     @SubscribeEvent
     public static void onPlayerInteractLeft(PlayerInteractEvent.LeftClickBlock event) {
@@ -998,15 +1009,14 @@ public class WorldguardCommand {
         }
     }
 	
-	
 	@SubscribeEvent
 	public static void onItemFrameBreak(PlayerInteractEvent.LeftClickBlock event) {
 	    Player player = event.getEntity();
 	    BlockPos pos = event.getPos();
 	
-	    // Procura entidades do tipo ItemFrame na posição clicada
+	    // Find ItemFrame entities at the clicked position
 	    List<ItemFrame> itemFrames = event.getLevel().getEntitiesOfClass(ItemFrame.class,
-	        new AABB(pos)); // Área de um bloco
+	        new AABB(pos)); // One block area
 	
 	    if (!itemFrames.isEmpty()) {
 	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "item-frame-break", player)) {
@@ -1015,7 +1025,6 @@ public class WorldguardCommand {
 	        }
 	    }
 	}
-
 
     @SubscribeEvent
     public static void onProjectileDamage(LivingDamageEvent event) {
@@ -1229,7 +1238,7 @@ public class WorldguardCommand {
             
             String lastRegion = player.getPersistentData().getString("lastRegion");
             if (!lastRegion.equals(currentRegion.toString())) {
-                if (!currentRegion.enterMessage.isEmpty()) {
+                if (currentRegion.enterMessage != null && !currentRegion.enterMessage.isEmpty()) {
                     player.sendSystemMessage(Component.literal(currentRegion.enterMessage));
                 }
                 player.getPersistentData().putString("lastRegion", currentRegion.toString());
@@ -1243,7 +1252,7 @@ public class WorldguardCommand {
                     .filter(r -> r.toString().equals(lastRegion))
                     .findFirst().orElse(null);
                 
-                if (region != null && !region.exitMessage.isEmpty()) {
+                if (region != null && region.exitMessage != null && !region.exitMessage.isEmpty()) {
                     player.sendSystemMessage(Component.literal(region.exitMessage));
                 }
                 
@@ -1358,9 +1367,9 @@ public class WorldguardCommand {
 	        Region region = getRegion(pos);
 	        if (region != null) {
 	            String message = "<" + player.getName().getString() + "> " + event.getMessage();
-	            event.setCanceled(true); // Cancela o envio padrão da mensagem
+	            event.setCanceled(true); // Cancel default message sending
 	
-	            // Enviar a mensagem apenas para os jogadores autorizados
+	            // Send message only to authorized players
 	            for (ServerPlayer target : player.getServer().getPlayerList().getPlayers()) {
 	                BlockPos targetPos = target.blockPosition();
 	                if (!isRegionProtected(targetPos) || isFlagEnabled(targetPos, "receive-chat", target)) {
