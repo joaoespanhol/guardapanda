@@ -124,7 +124,7 @@ public class WorldguardCommand {
             flags.putIfAbsent("interact", false);
             flags.putIfAbsent("use", false);
             flags.putIfAbsent("chest-access", false);
-            flags.putIfAbsent("sign", false);
+            flags.putIfAbsent("sign", false); // Flag única para placas
             flags.putIfAbsent("item-frame-rotation", false);
             flags.putIfAbsent("item-frame-remove", false);
             flags.putIfAbsent("item-frame-break", false);
@@ -161,7 +161,7 @@ public class WorldguardCommand {
             memberFlags.put("block-break", false);
             memberFlags.put("block-place", false);
             memberFlags.put("interact", false);
-            memberFlags.put("sign", false);
+            memberFlags.put("sign", false); // Permissão de placas para membros
             memberFlags.put("use", false);
             memberFlags.put("item-frame-rotation", false);
         }
@@ -288,6 +288,17 @@ public class WorldguardCommand {
                 return false;
             }
             return false;
+        }
+        
+        // Verificação específica para placas
+        if (flag.equals("sign-place") || flag.equals("sign-break")) {
+            // Se for membro e tiver permissão específica
+            if (region.isMember(player.getName().getString()) && 
+                region.hasMemberFlag(player.getName().getString(), "sign")) {
+                return true;
+            }
+            // Se a flag geral de placas estiver ativada
+            return region.getFlags().getOrDefault("sign", false);
         }
         
         if (region.isOwner(player.getName().getString())) {
@@ -863,6 +874,16 @@ public class WorldguardCommand {
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
         Player player = event.getPlayer();
         BlockPos pos = event.getPos();
+        BlockState state = event.getState();
+
+        // Verificação específica para placas
+        if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign-break", player)) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("Você não pode quebrar placas nesta região protegida."));
+                return;
+            }
+        }
 
         // Check for fake players (like from Create)
         if (player instanceof FakePlayer) {
@@ -889,38 +910,48 @@ public class WorldguardCommand {
             }
         }
     }
-
-    @SubscribeEvent
-    public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
-        if (event.getEntity() instanceof Player) {
-            Player player = (Player) event.getEntity();
-            BlockPos pos = event.getPos();
-
-            // Check for fake players (like from Create)
-            if (player instanceof FakePlayer) {
-                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
-                    event.setCanceled(true);
-                    return;
-                }
-            }
-
-            // Check if using banned mod item
-            if (isBannedModItem(player.getMainHandItem())) {
-                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
-                    event.setCanceled(true);
-                    player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
-                    return;
-                }
-            }
-
-            if (isRegionProtected(pos)) {
-                if (!isFlagEnabled(pos, "block-place", player) || !isFlagEnabled(pos, "build", player)) {
-                    event.setCanceled(true);
-                    player.sendSystemMessage(Component.literal("Você não pode colocar blocos nesta região protegida."));
-                }
-            }
-        }
-    }
+	@SubscribeEvent
+	public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+	    if (event.getEntity() instanceof Player) {
+	        Player player = (Player) event.getEntity();
+	        BlockPos pos = event.getPos();
+	        // Obter o BlockState do bloco que está sendo colocado de forma diferente
+	        BlockState state = event.getPlacedBlock();
+	
+	        // Verificação específica para placas
+	        if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
+	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign-place", player)) {
+	                event.setCanceled(true);
+	                player.sendSystemMessage(Component.literal("Você não pode colocar placas nesta região protegida."));
+	                return;
+	            }
+	        }
+	
+	        // Check for fake players (like from Create)
+	        if (player instanceof FakePlayer) {
+	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
+	                event.setCanceled(true);
+	                return;
+	            }
+	        }
+	
+	        // Check if using banned mod item
+	        if (isBannedModItem(player.getMainHandItem())) {
+	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
+	                event.setCanceled(true);
+	                player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
+	                return;
+	            }
+	        }
+	
+	        if (isRegionProtected(pos)) {
+	            if (!isFlagEnabled(pos, "block-place", player) || !isFlagEnabled(pos, "build", player)) {
+	                event.setCanceled(true);
+	                player.sendSystemMessage(Component.literal("Você não pode colocar blocos nesta região protegida."));
+	            }
+	        }
+	    }
+	}
 
 	@SubscribeEvent
 	public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
@@ -1102,8 +1133,8 @@ public class WorldguardCommand {
         if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
             if (isRegionProtected(pos)) {
                 Region region = getRegion(pos);
-                if (!isFlagEnabled(pos, "sign", player) && 
-                    !(region != null && region.hasMemberFlag(player.getName().getString(), "sign"))) {
+                if (!isFlagEnabled(pos, "interact", player) && 
+                    !(region != null && region.hasMemberFlag(player.getName().getString(), "interact"))) {
                     event.setCanceled(true);
                     player.sendSystemMessage(Component.literal("Você não pode interagir com placas nesta região protegida."));
                 }
