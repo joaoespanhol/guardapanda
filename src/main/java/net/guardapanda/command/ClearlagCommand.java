@@ -43,6 +43,7 @@ import net.minecraftforge.server.ServerLifecycleHooks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.core.BlockPos;
 import java.util.HashSet;
+import java.util.Collections;
 import java.util.Set;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -1188,62 +1189,84 @@ private static void generateDefaultConfig() {
     }
 
     // Event listeners for new systems
-@Mod.EventBusSubscriber
-public static class ChunkLimiterEvents {
 
-    private static final Set<ChunkPos> alreadyLoadedChunks = new HashSet<>();
+	@Mod.EventBusSubscriber
+	public static class ChunkLimiterEvents {
+		private static final Set<ChunkPos> alreadyLoadedChunks = new HashSet<>();
 
-    @SubscribeEvent
-    public static void onChunkLoad(ChunkEvent.Load event) {
-        if (!chunkLimiterEnabled || !(event.getLevel() instanceof ServerLevel level)) return;
+		@SubscribeEvent
+		public static void onChunkLoad(ChunkEvent.Load event) {
+			if (!chunkLimiterEnabled || !(event.getLevel() instanceof ServerLevel level)) return;
 
-        LevelChunk chunk = (LevelChunk) event.getChunk();
-        ChunkPos chunkPos = chunk.getPos();
+			LevelChunk chunk = (LevelChunk) event.getChunk();
+			ChunkPos chunkPos = chunk.getPos();
 
-        boolean isNewChunk = !alreadyLoadedChunks.contains(chunkPos);
-        alreadyLoadedChunks.add(chunkPos);
+			boolean isNewChunk = !alreadyLoadedChunks.contains(chunkPos);
+			alreadyLoadedChunks.add(chunkPos);
 
-        if ((!createNewChunks && isNewChunk) || countLoadedChunks() >= globalChunkLimit) {
-            level.getChunkSource().removeRegionTicket(TicketType.PLAYER, chunkPos, 31, chunkPos);
+			if ((!createNewChunks && isNewChunk) || countLoadedChunks() >= globalChunkLimit) {
+				level.getChunkSource().removeRegionTicket(TicketType.PLAYER, chunkPos, 31, chunkPos);
 
-            if (countLoadedChunks() >= globalChunkLimit) {
-                try {
-                    // Get the chunk map
-                    ChunkMap chunkMap = (ChunkMap) level.getChunkSource().chunkMap;
-                    
-                    // Use reflection to access the visible chunks
-                    Field visibleChunksField = ChunkMap.class.getDeclaredField("visibleChunkMap");
-                    visibleChunksField.setAccessible(true);
-                    @SuppressWarnings("unchecked")
-                    Map<Long, ChunkHolder> visibleChunks = (Map<Long, ChunkHolder>) visibleChunksField.get(chunkMap);
-                    
-                    // Process chunks
-                    for (ChunkHolder holder : visibleChunks.values()) {
-                        LevelChunk loadedChunk = holder.getTickingChunk();
-                        if (loadedChunk != null && !loadedChunk.getPos().equals(chunkPos)) {
-                            level.getChunkSource().removeRegionTicket(TicketType.PLAYER, loadedChunk.getPos(), 31, loadedChunk.getPos());
-                            if (countLoadedChunks() < globalChunkLimit) {
-                                break;
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+				if (countLoadedChunks() >= globalChunkLimit) {
+					// Alternative approach using the public API
+					try {
+						ChunkMap chunkMap = level.getChunkSource().chunkMap;
+						
+						// Get all chunks that are currently loaded
+						Iterable<ChunkHolder> chunks = getLoadedChunks(chunkMap);
+						
+						for (ChunkHolder holder : chunks) {
+							if (holder != null) {
+								LevelChunk loadedChunk = holder.getTickingChunk();
+								if (loadedChunk != null && !loadedChunk.getPos().equals(chunkPos)) {
+									level.getChunkSource().removeRegionTicket(
+										TicketType.PLAYER, 
+										loadedChunk.getPos(), 
+										31, 
+										loadedChunk.getPos()
+									);
+									if (countLoadedChunks() < globalChunkLimit) {
+										break;
+									}
+								}
+							}
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+				}
+			}
+		}
+
+// Helper method to get loaded chunks without using protected methods
+    private static Iterable<ChunkHolder> getLoadedChunks(ChunkMap chunkMap) {
+        try {
+            // Try to use the public API first
+            if (chunkMap instanceof Iterable) {
+                return (Iterable<ChunkHolder>) chunkMap;
             }
+            
+            // Fallback to reflection if needed
+            Field visibleChunksField = ChunkMap.class.getDeclaredField("visibleChunkMap");
+            visibleChunksField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<Long, ChunkHolder> visibleChunks = (Map<Long, ChunkHolder>) visibleChunksField.get(chunkMap);
+            return visibleChunks.values();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Collections.emptyList();
         }
     }
-}
 
 
-        private static int countLoadedChunks() {
-            int count = 0;
-            for (ServerLevel level : ServerLifecycleHooks.getCurrentServer().getAllLevels()) {
-                count += level.getChunkSource().chunkMap.size();
-            }
-            return count;
+    private static int countLoadedChunks() {
+        int count = 0;
+        for (ServerLevel level : ServerLifecycleHooks.getCurrentServer().getAllLevels()) {
+            count += level.getChunkSource().chunkMap.size();
         }
-    
+        return count;
+    }
+}
 
     @Mod.EventBusSubscriber
     public static class HopperLimiterEvents {
