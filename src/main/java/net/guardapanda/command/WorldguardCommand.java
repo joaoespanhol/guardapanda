@@ -77,6 +77,7 @@ public class WorldguardCommand {
     private static final File bannedItemsFile = new File("banned_items.json");
     private static final Set<String> bannedModItems = new HashSet<>();
     private static final Set<String> detectedFakePlayers = new HashSet<>();
+    private static final Set<String> bypassPlayers = new HashSet<>();
 
     static {
         loadRegionsFromFile();
@@ -115,21 +116,16 @@ public class WorldguardCommand {
         private void initializeDefaultFlags() {
             // Protection flags
             flags.putIfAbsent("build", false);
-            flags.putIfAbsent("block-place", false);
-            flags.putIfAbsent("block-break", false);
             flags.putIfAbsent("destroy", false);
-            flags.putIfAbsent("mod-interaction", false);
             
             // Interaction flags
             flags.putIfAbsent("interact", false);
-            flags.putIfAbsent("use", false);
-            flags.putIfAbsent("chest-access", false);
-            flags.putIfAbsent("sign", false); // Flag única para placas
+            flags.putIfAbsent("container-access", false);
+            flags.putIfAbsent("sign", false);
             flags.putIfAbsent("item-frame-rotation", false);
             flags.putIfAbsent("item-frame-remove", false);
             flags.putIfAbsent("item-frame-break", false);
             flags.putIfAbsent("use-anvil", false);
-            flags.putIfAbsent("container-access", false);
             
             // Entity flags
             flags.putIfAbsent("mob-spawning", false);
@@ -155,15 +151,14 @@ public class WorldguardCommand {
             flags.putIfAbsent("invincible", false);
             flags.putIfAbsent("item-pickup", true);
             flags.putIfAbsent("item-drop", true);
+            flags.putIfAbsent("mod-interaction", false);
             
-            // Default member flags
+            // Member flags
             memberFlags.put("build", false);
-            memberFlags.put("block-break", false);
-            memberFlags.put("block-place", false);
+            memberFlags.put("destroy", false);
             memberFlags.put("interact", false);
-            memberFlags.put("sign", false); // Permissão de placas para membros
-            memberFlags.put("use", false);
-            memberFlags.put("item-frame-rotation", false);
+            memberFlags.put("sign", false);
+            memberFlags.put("container-access", false);
         }
 
         public boolean isWithinRegion(BlockPos pos) {
@@ -173,19 +168,19 @@ public class WorldguardCommand {
         }
 
         public boolean isOwner(String playerName) {
-            return owner != null && owner.equals(playerName);
+            return owner != null && owner.equalsIgnoreCase(playerName);
         }
 
         public boolean isMember(String playerName) {
-            return members.containsKey(playerName);
+            return members.containsKey(playerName.toLowerCase());
         }
 
         public void addMember(String playerName) {
-            members.put(playerName, true);
+            members.put(playerName.toLowerCase(), true);
         }
 
         public void removeMember(String playerName) {
-            members.remove(playerName);
+            members.remove(playerName.toLowerCase());
         }
 
         public Map<String, Boolean> getFlags() {
@@ -251,8 +246,7 @@ public class WorldguardCommand {
         
         public boolean isPlayerAllowed(String playerName) {
             return playerName != null && 
-                   (allowedPlayers == null || allowedPlayers.isEmpty() || 
-                   allowedPlayers.contains(playerName.toLowerCase()));
+                   (allowedPlayers.isEmpty() || allowedPlayers.contains(playerName.toLowerCase()));
         }
     }
 
@@ -274,12 +268,22 @@ public class WorldguardCommand {
             return false;
         }
         
-        if (player.hasPermissions(2)) {
+        if (player.hasPermissions(2)){
+            return true;
+        }
+        
+        // Check bypass first
+        if (bypassPlayers.contains(player.getName().getString().toLowerCase())) {
             return true;
         }
         
         Region region = getRegion(pos);
         if (region == null) {
+            return true;
+        }
+        
+        // Owner has full access
+        if (region.isOwner(player.getName().getString())) {
             return true;
         }
         
@@ -290,21 +294,7 @@ public class WorldguardCommand {
             return false;
         }
         
-        // Verificação específica para placas
-        if (flag.equals("sign-place") || flag.equals("sign-break")) {
-            // Se for membro e tiver permissão específica
-            if (region.isMember(player.getName().getString()) && 
-                region.hasMemberFlag(player.getName().getString(), "sign")) {
-                return true;
-            }
-            // Se a flag geral de placas estiver ativada
-            return region.getFlags().getOrDefault("sign", false);
-        }
-        
-        if (region.isOwner(player.getName().getString())) {
-            return true;
-        }
-        
+        // Check member permissions
         if (region.isMember(player.getName().getString())) {
             if (region.hasMemberFlag(player.getName().getString(), flag)) {
                 return true;
@@ -361,7 +351,6 @@ public class WorldguardCommand {
                 e.printStackTrace();
             }
         } else {
-            // Default banned items
             bannedModItems.addAll(Arrays.asList(
                 "create:drill",
                 "create:mechanical_drill",
@@ -778,12 +767,12 @@ public class WorldguardCommand {
                     Player player = context.getSource().getPlayerOrException();
 
                     List<String> flags = List.of(
-                        "build", "block-place", "block-break", "destroy", "interact", "use", 
-                        "chest-access", "sign", "item-frame-rotation", "item-frame-remove", 
-                        "item-frame-break", "use-anvil", "container-access", "mob-spawning", 
-                        "mob-damage", "pvp", "damage-animals", "creeper-explosion", 
-                        "other-explosion", "tnt", "fire-spread", "send-chat", "receive-chat", 
-                        "teleport", "entry", "invincible", "item-pickup", "item-drop", "mod-interaction"
+                        "build", "destroy", "interact", "container-access", "sign", 
+                        "item-frame-rotation", "item-frame-remove", "item-frame-break", 
+                        "use-anvil", "mob-spawning", "mob-damage", "pvp", "damage-animals", 
+                        "creeper-explosion", "other-explosion", "tnt", "fire-spread", 
+                        "send-chat", "receive-chat", "teleport", "entry", "invincible", 
+                        "item-pickup", "item-drop", "mod-interaction"
                     );
 
                     player.sendSystemMessage(Component.literal("Flags disponíveis:"));
@@ -791,14 +780,12 @@ public class WorldguardCommand {
                         player.sendSystemMessage(Component.literal("- " + flag));
                     }
                     
-                    player.sendSystemMessage(Component.literal("Flags de membros disponíveis:"));
+                    player.sendSystemMessage(Component.literal("\nFlags de membros disponíveis:"));
                     player.sendSystemMessage(Component.literal("- build"));
-                    player.sendSystemMessage(Component.literal("- block-break"));
-                    player.sendSystemMessage(Component.literal("- block-place"));
+                    player.sendSystemMessage(Component.literal("- destroy"));
                     player.sendSystemMessage(Component.literal("- interact"));
                     player.sendSystemMessage(Component.literal("- sign"));
-                    player.sendSystemMessage(Component.literal("- use"));
-                    player.sendSystemMessage(Component.literal("- item-frame-rotation"));
+                    player.sendSystemMessage(Component.literal("- container-access"));
 
                     return 1;
                 })
@@ -867,6 +854,23 @@ public class WorldguardCommand {
                     return 1;
                 })
             )
+            .then(Commands.literal("bypass")
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.argument("player", StringArgumentType.word())
+                    .executes(context -> {
+                        String playerName = StringArgumentType.getString(context, "player");
+                        
+                        if (bypassPlayers.contains(playerName.toLowerCase())) {
+                            bypassPlayers.remove(playerName.toLowerCase());
+                            context.getSource().sendSystemMessage(Component.literal("Bypass removido para " + playerName));
+                        } else {
+                            bypassPlayers.add(playerName.toLowerCase());
+                            context.getSource().sendSystemMessage(Component.literal("Bypass concedido para " + playerName));
+                        }
+                        return 1;
+                    })
+                )
+            )
         );
     }
 
@@ -878,7 +882,7 @@ public class WorldguardCommand {
 
         // Verificação específica para placas
         if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
-            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign-break", player)) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
                 event.setCanceled(true);
                 player.sendSystemMessage(Component.literal("Você não pode quebrar placas nesta região protegida."));
                 return;
@@ -904,105 +908,106 @@ public class WorldguardCommand {
 
         // Normal protection check
         if (isRegionProtected(pos)) {
-            if (!isFlagEnabled(pos, "block-break", player) || !isFlagEnabled(pos, "destroy", player)) {
+            if (!isFlagEnabled(pos, "destroy", player)) {
                 event.setCanceled(true);
                 player.sendSystemMessage(Component.literal("Você não pode quebrar blocos nesta região protegida."));
             }
         }
     }
-	@SubscribeEvent
-	public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
-	    if (event.getEntity() instanceof Player) {
-	        Player player = (Player) event.getEntity();
-	        BlockPos pos = event.getPos();
-	        // Obter o BlockState do bloco que está sendo colocado de forma diferente
-	        BlockState state = event.getPlacedBlock();
-	
-	        // Verificação específica para placas
-	        if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
-	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign-place", player)) {
-	                event.setCanceled(true);
-	                player.sendSystemMessage(Component.literal("Você não pode colocar placas nesta região protegida."));
-	                return;
-	            }
-	        }
-	
-	        // Check for fake players (like from Create)
-	        if (player instanceof FakePlayer) {
-	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
-	                event.setCanceled(true);
-	                return;
-	            }
-	        }
-	
-	        // Check if using banned mod item
-	        if (isBannedModItem(player.getMainHandItem())) {
-	            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
-	                event.setCanceled(true);
-	                player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
-	                return;
-	            }
-	        }
-	
-	        if (isRegionProtected(pos)) {
-	            if (!isFlagEnabled(pos, "block-place", player) || !isFlagEnabled(pos, "build", player)) {
-	                event.setCanceled(true);
-	                player.sendSystemMessage(Component.literal("Você não pode colocar blocos nesta região protegida."));
-	            }
-	        }
-	    }
-	}
 
-	@SubscribeEvent
-	public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
-	    Player player = event.getEntity();
-	
-	    if (player.getMainHandItem().getItem() == Items.GOLDEN_AXE) {
-	        if (event.getHand() == InteractionHand.MAIN_HAND) {
-	            firstPoint.put(player, event.getPos());
-	            player.sendSystemMessage(Component.literal("Primeiro ponto selecionado: " + event.getPos()));
-	            event.setCanceled(true);
-	        }
-	        return;
-	    }
-	
-	    BlockPos pos = event.getPos();
-	    BlockState state = event.getLevel().getBlockState(pos);
-	    BlockEntity blockEntity = event.getLevel().getBlockEntity(pos);
-	
-	    if (blockEntity instanceof MenuProvider && !(state.getBlock() instanceof AnvilBlock)) {
-	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "container-access", player)) {
-	            event.setCanceled(true);
-	            player.sendSystemMessage(Component.literal("Você não pode acessar containers nesta região protegida."));
-	            return;
-	        }
-	    }
-	
-	    // Check interaction with anvils
-	    if (state.getBlock() instanceof AnvilBlock) {
-	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "use-anvil", player)) {
-	            event.setCanceled(true);
-	            player.sendSystemMessage(Component.literal("Você não pode usar bigornas nesta região protegida."));
-	            return;
-	        }
-	    }
-	
-	    // Check for fake players (like from Create)
-	    if (player instanceof FakePlayer) {
-	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
-	            event.setCanceled(true);
-	            return;
-	        }
-	    }
-	
-	    // Check banned mod items
-	    if (isBannedModItem(player.getMainHandItem())) {
-	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
-	            event.setCanceled(true);
-	            player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
-	        }
-	    }
-	}
+    @SubscribeEvent
+    public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+        if (event.getEntity() instanceof Player) {
+            Player player = (Player) event.getEntity();
+            BlockPos pos = event.getPos();
+            BlockState state = event.getPlacedBlock();
+    
+            // Verificação específica para placas
+            if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
+                if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
+                    event.setCanceled(true);
+                    player.sendSystemMessage(Component.literal("Você não pode colocar placas nesta região protegida."));
+                    return;
+                }
+            }
+    
+            // Check for fake players (like from Create)
+            if (player instanceof FakePlayer) {
+                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
+                    event.setCanceled(true);
+                    return;
+                }
+            }
+    
+            // Check if using banned mod item
+            if (isBannedModItem(player.getMainHandItem())) {
+                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
+                    event.setCanceled(true);
+                    player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
+                    return;
+                }
+            }
+    
+            if (isRegionProtected(pos)) {
+                if (!isFlagEnabled(pos, "build", player)) {
+                    event.setCanceled(true);
+                    player.sendSystemMessage(Component.literal("Você não pode colocar blocos nesta região protegida."));
+                }
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayerInteract(PlayerInteractEvent.RightClickBlock event) {
+        Player player = event.getEntity();
+    
+        if (player.getMainHandItem().getItem() == Items.GOLDEN_AXE) {
+            if (event.getHand() == InteractionHand.MAIN_HAND) {
+                firstPoint.put(player, event.getPos());
+                player.sendSystemMessage(Component.literal("Primeiro ponto selecionado: " + event.getPos()));
+                event.setCanceled(true);
+            }
+            return;
+        }
+    
+        BlockPos pos = event.getPos();
+        BlockState state = event.getLevel().getBlockState(pos);
+        BlockEntity blockEntity = event.getLevel().getBlockEntity(pos);
+    
+        // Check for any container interaction
+        if (blockEntity instanceof MenuProvider) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "container-access", player)) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("Você não pode acessar containers nesta região protegida."));
+                return;
+            }
+        }
+    
+        // Check interaction with anvils
+        if (state.getBlock() instanceof AnvilBlock) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "use-anvil", player)) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("Você não pode usar bigornas nesta região protegida."));
+                return;
+            }
+        }
+    
+        // Check for fake players (like from Create)
+        if (player instanceof FakePlayer) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
+                event.setCanceled(true);
+                return;
+            }
+        }
+    
+        // Check banned mod items
+        if (isBannedModItem(player.getMainHandItem())) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("Este item não pode ser usado em regiões protegidas."));
+            }
+        }
+    }
 
     @SubscribeEvent
     public static void onPlayerInteractLeft(PlayerInteractEvent.LeftClickBlock event) {
@@ -1039,23 +1044,23 @@ public class WorldguardCommand {
             }
         }
     }
-	
-	@SubscribeEvent
-	public static void onItemFrameBreak(PlayerInteractEvent.LeftClickBlock event) {
-	    Player player = event.getEntity();
-	    BlockPos pos = event.getPos();
-	
-	    // Find ItemFrame entities at the clicked position
-	    List<ItemFrame> itemFrames = event.getLevel().getEntitiesOfClass(ItemFrame.class,
-	        new AABB(pos)); // One block area
-	
-	    if (!itemFrames.isEmpty()) {
-	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "item-frame-break", player)) {
-	            event.setCanceled(true);
-	            player.sendSystemMessage(Component.literal("Você não pode quebrar item frames nesta região protegida."));
-	        }
-	    }
-	}
+    
+    @SubscribeEvent
+    public static void onItemFrameBreak(PlayerInteractEvent.LeftClickBlock event) {
+        Player player = event.getEntity();
+        BlockPos pos = event.getPos();
+    
+        // Find ItemFrame entities at the clicked position
+        List<ItemFrame> itemFrames = event.getLevel().getEntitiesOfClass(ItemFrame.class,
+            new AABB(pos)); // One block area
+    
+        if (!itemFrames.isEmpty()) {
+            if (isRegionProtected(pos) && !isFlagEnabled(pos, "item-frame-break", player)) {
+                event.setCanceled(true);
+                player.sendSystemMessage(Component.literal("Você não pode quebrar item frames nesta região protegida."));
+            }
+        }
+    }
 
     @SubscribeEvent
     public static void onProjectileDamage(LivingDamageEvent event) {
@@ -1252,13 +1257,25 @@ public class WorldguardCommand {
         Region currentRegion = getRegion(currentPos);
         
         if (currentRegion != null) {
+            // Don't kick the owner
+            if (currentRegion.isOwner(player.getName().getString())) {
+                return;
+            }
+            
             if (!isFlagEnabled(currentPos, "entry", player) || 
                 !currentRegion.isPlayerAllowed(player.getName().getString())) {
                 
                 if (!player.hasPermissions(2)) {
                     Vec3 safeSpot = findSafeSpotOutsideRegion(currentRegion, player);
                     player.teleportTo(safeSpot.x, safeSpot.y, safeSpot.z);
-                    player.sendSystemMessage(Component.literal("Você não tem permissão para entrar nesta área protegida."));
+                    
+                    // Show owner information if available
+                    if (currentRegion.owner != null && !currentRegion.owner.isEmpty()) {
+                        player.sendSystemMessage(Component.literal("Você não tem permissão para entrar nesta área protegida."));
+                        player.sendSystemMessage(Component.literal("Dono da região: " + currentRegion.owner));
+                    } else {
+                        player.sendSystemMessage(Component.literal("Você não tem permissão para entrar nesta área protegida."));
+                    }
                     return;
                 }
             }
@@ -1355,7 +1372,8 @@ public class WorldguardCommand {
         if (isRegionProtected(pos)) {
             Region region = getRegion(pos);
             
-            if (region != null && !region.isPlayerAllowed(player.getName().getString()) && 
+            if (region != null && !region.isOwner(player.getName().getString()) && 
+                !region.isPlayerAllowed(player.getName().getString()) && 
                 !isFlagEnabled(pos, "teleport", player) && !player.hasPermissions(2)) {
                 
                 Vec3 safeSpot = findSafeSpotOutsideRegion(region, player);
@@ -1373,7 +1391,8 @@ public class WorldguardCommand {
         if (isRegionProtected(pos)) {
             Region region = getRegion(pos);
             
-            if (region != null && !region.isPlayerAllowed(player.getName().getString()) && 
+            if (region != null && !region.isOwner(player.getName().getString()) && 
+                !region.isPlayerAllowed(player.getName().getString()) && 
                 !player.hasPermissions(2)) {
                 
                 Vec3 safeSpot = findSafeSpotOutsideRegion(region, player);
@@ -1383,33 +1402,33 @@ public class WorldguardCommand {
         }
     }
     
-	@SubscribeEvent
-	public static void onPlayerChat(net.minecraftforge.event.ServerChatEvent event) {
-	    Player player = event.getPlayer();
-	    BlockPos pos = player.blockPosition();
-	
-	    if (isRegionProtected(pos)) {
-	        if (!isFlagEnabled(pos, "send-chat", player)) {
-	            player.sendSystemMessage(Component.literal("Você não pode enviar mensagens nesta região."));
-	            event.setCanceled(true);
-	            return;
-	        }
-	
-	        Region region = getRegion(pos);
-	        if (region != null) {
-	            String message = "<" + player.getName().getString() + "> " + event.getMessage();
-	            event.setCanceled(true); // Cancel default message sending
-	
-	            // Send message only to authorized players
-	            for (ServerPlayer target : player.getServer().getPlayerList().getPlayers()) {
-	                BlockPos targetPos = target.blockPosition();
-	                if (!isRegionProtected(targetPos) || isFlagEnabled(targetPos, "receive-chat", target)) {
-	                    target.sendSystemMessage(Component.literal(message));
-	                }
-	            }
-	        }
-	    }
-	}
+    @SubscribeEvent
+    public static void onPlayerChat(net.minecraftforge.event.ServerChatEvent event) {
+        Player player = event.getPlayer();
+        BlockPos pos = player.blockPosition();
+    
+        if (isRegionProtected(pos)) {
+            if (!isFlagEnabled(pos, "send-chat", player)) {
+                player.sendSystemMessage(Component.literal("Você não pode enviar mensagens nesta região."));
+                event.setCanceled(true);
+                return;
+            }
+    
+            Region region = getRegion(pos);
+            if (region != null) {
+                String message = "<" + player.getName().getString() + "> " + event.getMessage();
+                event.setCanceled(true); // Cancel default message sending
+    
+                // Send message only to authorized players
+                for (ServerPlayer target : player.getServer().getPlayerList().getPlayers()) {
+                    BlockPos targetPos = target.blockPosition();
+                    if (!isRegionProtected(targetPos) || isFlagEnabled(targetPos, "receive-chat", target)) {
+                        target.sendSystemMessage(Component.literal(message));
+                    }
+                }
+            }
+        }
+    }
 
     @SubscribeEvent
     public static void onPvP(LivingDamageEvent event) {
