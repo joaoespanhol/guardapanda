@@ -6,12 +6,16 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
@@ -29,27 +33,29 @@ import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.loading.FMLEnvironment;
+import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.registries.ForgeRegistries;
 
 import java.io.*;
 import java.util.*;
+import java.util.function.Consumer;
 
 @Mod.EventBusSubscriber
 public class LimititensCommand {
 
-    private static final Map<UUID, Map<String, Integer>> playerLimits = new HashMap<>();
+    private static final Map<String, Integer> globalItemLimits = new HashMap<>();
     private static final Map<UUID, Map<BlockPos, String>> placedBlocks = new HashMap<>();
-    private static final File saveFile = new File("config/guardapanda/limits.json");
+    private static final File limitsFile = new File("config/guardapanda/global_limits.json");
     private static final File blocksFile = new File("config/guardapanda/placed_blocks.json");
 
     static {
-        loadLimits();
+        loadGlobalLimits();
         loadPlacedBlocks();
         MinecraftForge.EVENT_BUS.register(LimititensCommand.class);
     }
 
-    public static Map<UUID, Map<String, Integer>> getPlayerLimits() {
-        return playerLimits;
+    public static Map<String, Integer> getGlobalItemLimits() {
+        return globalItemLimits;
     }
 
     @SubscribeEvent
@@ -59,51 +65,19 @@ public class LimititensCommand {
         dispatcher.register(
             Commands.literal("limititens")
                 .then(Commands.literal("set")
+                    .requires(source -> source.hasPermission(2))
                     .then(Commands.argument("quantidade", IntegerArgumentType.integer(1))
-                        .executes(ctx -> {
-                            try {
-                                return setLimit(ctx);
-                            } catch (CommandSyntaxException e) {
-                                ctx.getSource().sendFailure(Component.literal("Erro ao executar comando"));
-                                return 0;
-                            }
-                        })))
+                        .executes(ctx -> setLimit(ctx))))
                 .then(Commands.literal("remove")
-                    .executes(ctx -> {
-                        try {
-                            return removeLimit(ctx);
-                        } catch (CommandSyntaxException e) {
-                            ctx.getSource().sendFailure(Component.literal("Erro ao executar comando"));
-                            return 0;
-                        }
-                    }))
+                    .requires(source -> source.hasPermission(2))
+                    .executes(ctx -> removeLimit(ctx)))
                 .then(Commands.literal("list")
-                    .executes(ctx -> {
-                        try {
-                            return listLimits(ctx);
-                        } catch (CommandSyntaxException e) {
-                            ctx.getSource().sendFailure(Component.literal("Erro ao executar comando"));
-                            return 0;
-                        }
-                    }))
+                    .executes(ctx -> listLimits(ctx)))
                 .then(Commands.literal("gui")
-                    .executes(ctx -> {
-                        try {
-                            return openGui(ctx);
-                        } catch (CommandSyntaxException e) {
-                            ctx.getSource().sendFailure(Component.literal("Erro ao executar comando"));
-                            return 0;
-                        }
-                    }))
+                .requires(source -> source.hasPermission(2))
+                    .executes(ctx -> openGui(ctx)))
                 .then(Commands.literal("check")
-                    .executes(ctx -> {
-                        try {
-                            return checkLimit(ctx);
-                        } catch (CommandSyntaxException e) {
-                            ctx.getSource().sendFailure(Component.literal("Erro ao executar comando"));
-                            return 0;
-                        }
-                    }))
+                    .executes(ctx -> checkLimit(ctx)))
         );
     }
 
@@ -114,16 +88,15 @@ public class LimititensCommand {
             ctx.getSource().sendFailure(Component.literal("§cSegure um item na mão principal!"));
             return 0;
         }
+        
         int limit = IntegerArgumentType.getInteger(ctx, "quantidade");
         String itemId = ForgeRegistries.ITEMS.getKey(heldItem.getItem()).toString();
-        
-        playerLimits.computeIfAbsent(player.getUUID(), k -> new HashMap<>())
-            .put(itemId, limit);
-        saveLimits();
+        globalItemLimits.put(itemId, limit);
+        saveGlobalLimits();
         
         ctx.getSource().sendSuccess(() -> 
-            Component.literal("§aLimite definido: §e" + heldItem.getDisplayName().getString() + 
-            " §f→ §b" + limit), false);
+            Component.literal("§aLimite global definido: §e" + heldItem.getDisplayName().getString() + 
+            " §f→ §b" + limit), true);
         return 1;
     }
 
@@ -134,66 +107,123 @@ public class LimititensCommand {
             ctx.getSource().sendFailure(Component.literal("§cSegure um item na mão principal!"));
             return 0;
         }
-        String itemId = ForgeRegistries.ITEMS.getKey(heldItem.getItem()).toString();
         
-        if (playerLimits.getOrDefault(player.getUUID(), Collections.emptyMap())
-            .remove(itemId) != null) {
-            saveLimits();
+        String itemId = ForgeRegistries.ITEMS.getKey(heldItem.getItem()).toString();
+        if (globalItemLimits.remove(itemId) != null) {
+            saveGlobalLimits();
             ctx.getSource().sendSuccess(() -> 
-                Component.literal("§aLimite removido: §e" + heldItem.getDisplayName().getString()), false);
-        } else {
-            ctx.getSource().sendFailure(Component.literal("§cNenhum limite encontrado para este item"));
+                Component.literal("§aLimite global removido: §e" + heldItem.getDisplayName().getString()), true);
+            return 1;
         }
-        return 1;
+        
+        ctx.getSource().sendFailure(Component.literal("§cNenhum limite encontrado para este item"));
+        return 0;
     }
 
     private static int listLimits(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        Map<String, Integer> limits = playerLimits.getOrDefault(player.getUUID(), new HashMap<>());
         
-        if (limits.isEmpty()) {
+        if (globalItemLimits.isEmpty()) {
             ctx.getSource().sendSuccess(() -> 
-                Component.literal("§eVocê não tem limites definidos"), false);
-        } else {
-            ctx.getSource().sendSuccess(() -> 
-                Component.literal("§6Seus limites de itens:"), false);
-            limits.forEach((id, limit) -> {
-                ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(id)));
-                String name = stack.isEmpty() ? id : stack.getDisplayName().getString();
-                player.sendSystemMessage(Component.literal("§7- §e" + name + " §f→ §b" + limit));
-            });
+                Component.literal("§eNão há limites globais definidos"), false);
+            return 1;
         }
+        
+        ctx.getSource().sendSuccess(() -> 
+            Component.literal("§6Limites globais de itens:"), false);
+            
+        globalItemLimits.forEach((id, limit) -> {
+            ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(id)));
+            String name = stack.isEmpty() ? id : stack.getDisplayName().getString();
+            player.sendSystemMessage(Component.literal("§7- §e" + name + " §f→ §b" + limit));
+        });
+        
         return 1;
     }
 
     private static int openGui(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        if (FMLEnvironment.dist == Dist.CLIENT) {
-            openClientGui(player);
-        } else {
-            Map<String, Integer> limits = playerLimits.getOrDefault(player.getUUID(), new HashMap<>());
-            
-            if (limits.isEmpty()) {
-                player.sendSystemMessage(Component.literal("§eVocê não tem limites definidos"));
-            } else {
-                player.sendSystemMessage(Component.literal("§6Seus limites de itens:"));
-                limits.forEach((id, limit) -> {
-                    ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(id)));
-                    String name = stack.isEmpty() ? id : stack.getDisplayName().getString();
-                    player.sendSystemMessage(Component.literal("§7- §e" + name + " §f→ §b" + limit));
-                });
-            }
+        
+        if (globalItemLimits.isEmpty()) {
+            player.sendSystemMessage(Component.literal("§eNão há limites globais definidos"));
+            return 0;
         }
+        
+        MenuProvider menuProvider = new MenuProvider() {
+            @Override
+            public Component getDisplayName() {
+                return Component.literal("Limites Globais de Itens");
+            }
+
+            @Override
+            public AbstractContainerMenu createMenu(int windowId, Inventory playerInventory, Player player) {
+                return new ReadOnlyContainerMenu(windowId, playerInventory);
+            }
+        };
+        
+        NetworkHooks.openScreen(player, menuProvider);
         return 1;
     }
 
-    @OnlyIn(Dist.CLIENT)
-    private static void openClientGui(Player player) {
-        try {
-            Class<?> clientClass = Class.forName("net.guardapanda.command.LimititensCommandClient");
-            clientClass.getMethod("openGui", Player.class).invoke(null, player);
-        } catch (Exception e) {
-            e.printStackTrace();
+    public static class ReadOnlyContainerMenu extends AbstractContainerMenu {
+        public ReadOnlyContainerMenu(int id, Inventory playerInventory) {
+            super(MenuType.GENERIC_9x6, id);
+            
+            // Slots de visualização dos itens com limites
+            int slotIndex = 0;
+            for (Map.Entry<String, Integer> entry : globalItemLimits.entrySet()) {
+                ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(entry.getKey())));
+                if (!stack.isEmpty()) {
+                    this.addSlot(new ReadOnlySlot(stack, slotIndex % 9, slotIndex / 9));
+                    slotIndex++;
+                }
+            }
+
+            // Slots do inventário do jogador (somente visualização)
+            for (int row = 0; row < 3; ++row) {
+                for (int col = 0; col < 9; ++col) {
+                    this.addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 84 + row * 18));
+                }
+            }
+
+            // Hotbar (somente visualização)
+            for (int i = 0; i < 9; ++i) {
+                this.addSlot(new Slot(playerInventory, i, 8 + i * 18, 142));
+            }
+        }
+
+        @Override
+        public ItemStack quickMoveStack(Player player, int index) {
+            return ItemStack.EMPTY;
+        }
+
+        @Override
+        public boolean stillValid(Player player) {
+            return true;
+        }
+    }
+
+    public static class ReadOnlySlot extends Slot {
+        private final ItemStack displayStack;
+
+        public ReadOnlySlot(ItemStack stack, int x, int y) {
+            super(new SimpleContainer(1), 0, x * 18 + 8, y * 18 + 18);
+            this.displayStack = stack;
+        }
+
+        @Override
+        public ItemStack getItem() {
+            return displayStack.copy();
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return false;
         }
     }
 
@@ -206,7 +236,7 @@ public class LimititensCommand {
         }
         
         String itemId = ForgeRegistries.ITEMS.getKey(heldItem.getItem()).toString();
-        Integer limit = playerLimits.getOrDefault(player.getUUID(), Collections.emptyMap()).get(itemId);
+        Integer limit = globalItemLimits.get(itemId);
         
         if (limit == null) {
             ctx.getSource().sendFailure(Component.literal("§cNenhum limite definido para este item"));
@@ -224,7 +254,7 @@ public class LimititensCommand {
         
         player.sendSystemMessage(Component.literal("§6Informações do item:"));
         player.sendSystemMessage(Component.literal("§7- Item: §e" + heldItem.getDisplayName().getString()));
-        player.sendSystemMessage(Component.literal("§7- Limite: §b" + limit));
+        player.sendSystemMessage(Component.literal("§7- Limite global: §b" + limit));
         
         if (heldItem.getItem() instanceof BlockItem) {
             player.sendSystemMessage(Component.literal("§7- Blocos colocados: §a" + worldCount + "§7/§b" + limit));
@@ -306,22 +336,21 @@ public class LimititensCommand {
         if (player == null || stack.isEmpty()) return true;
         
         String itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
-        Integer limit = playerLimits.getOrDefault(player.getUUID(), Collections.emptyMap())
-            .get(itemId);
+        Integer limit = globalItemLimits.get(itemId);
         
         if (limit != null) {
             if (stack.getItem() instanceof BlockItem) {
                 int worldCount = countBlocksInWorld(player, itemId);
                 if (worldCount >= limit) {
                     player.displayClientMessage(
-                        Component.literal("§cVocê atingiu o limite máximo de " + limit + " blocos colocados!"), true);
+                        Component.literal("§cLimite global atingido: máximo de " + limit + " blocos colocados!"), true);
                     return false;
                 }
             } else {
                 int inventoryCount = countItemsInInventory(player, itemId);
                 if (inventoryCount >= limit) {
                     player.displayClientMessage(
-                        Component.literal("§cVocê atingiu o limite máximo de " + limit + " itens no inventário!"), true);
+                        Component.literal("§cLimite global atingido: máximo de " + limit + " itens no inventário!"), true);
                     return false;
                 }
             }
@@ -363,20 +392,16 @@ public class LimititensCommand {
         return count;
     }
 
-    private static void saveLimits() {
+    private static void saveGlobalLimits() {
         try {
-            if (!saveFile.getParentFile().exists()) {
-                saveFile.getParentFile().mkdirs();
+            if (!limitsFile.getParentFile().exists()) {
+                limitsFile.getParentFile().mkdirs();
             }
 
             JsonObject root = new JsonObject();
-            playerLimits.forEach((uuid, limits) -> {
-                JsonObject playerData = new JsonObject();
-                limits.forEach(playerData::addProperty);
-                root.add(uuid.toString(), playerData);
-            });
+            globalItemLimits.forEach(root::addProperty);
 
-            try (FileWriter writer = new FileWriter(saveFile)) {
+            try (FileWriter writer = new FileWriter(limitsFile)) {
                 new GsonBuilder().setPrettyPrinting().create().toJson(root, writer);
             }
         } catch (IOException e) {
@@ -384,21 +409,13 @@ public class LimititensCommand {
         }
     }
 
-    private static void loadLimits() {
-        if (!saveFile.exists()) return;
+    private static void loadGlobalLimits() {
+        if (!limitsFile.exists()) return;
 
-        try (FileReader reader = new FileReader(saveFile)) {
+        try (FileReader reader = new FileReader(limitsFile)) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-            root.entrySet().forEach(entry -> {
-                UUID uuid = UUID.fromString(entry.getKey());
-                JsonObject limitsJson = entry.getValue().getAsJsonObject();
-                
-                Map<String, Integer> limits = new HashMap<>();
-                limitsJson.entrySet().forEach(e -> 
-                    limits.put(e.getKey(), e.getValue().getAsInt()));
-                
-                playerLimits.put(uuid, limits);
-            });
+            root.entrySet().forEach(entry -> 
+                globalItemLimits.put(entry.getKey(), entry.getValue().getAsInt()));
         } catch (Exception e) {
             e.printStackTrace();
         }

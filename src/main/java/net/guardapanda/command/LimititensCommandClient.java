@@ -16,29 +16,27 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.util.*;
+import java.util.Map;
 
 @OnlyIn(Dist.CLIENT)
 public class LimititensCommandClient {
     public static void openGui(Player player) {
         Minecraft.getInstance().setScreen(new LimitCheckScreen(
-            new LimitCheckMenu(0, player.getInventory(), player.getUUID()),
+            new LimitCheckMenu(0, player.getInventory()),
             player.getInventory(),
-            Component.literal("Limites de Itens")
+            Component.literal("Limites Globais de Itens")
         ));
     }
 
     public static class LimitCheckMenu extends AbstractContainerMenu {
-        public final Map<String, Integer> itemLimits;
         public final SimpleContainer container;
 
-        public LimitCheckMenu(int id, Inventory inv, UUID playerUUID) {
+        public LimitCheckMenu(int id, Inventory inv) {
             super(null, id);
-            this.itemLimits = LimititensCommand.getPlayerLimits().getOrDefault(playerUUID, Collections.emptyMap());
-            this.container = new SimpleContainer(Math.min(54, itemLimits.size() + 9));
+            this.container = new SimpleContainer(Math.min(54, LimititensCommand.getGlobalItemLimits().size() + 9));
 
             int slot = 0;
-            for (Map.Entry<String, Integer> entry : itemLimits.entrySet()) {
+            for (Map.Entry<String, Integer> entry : LimititensCommand.getGlobalItemLimits().entrySet()) {
                 ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(entry.getKey())));
                 if (!stack.isEmpty()) {
                     container.setItem(slot, stack);
@@ -46,12 +44,14 @@ public class LimititensCommandClient {
                 }
             }
 
+            // Slots do inventário
             for (int row = 0; row < 3; ++row) {
                 for (int col = 0; col < 9; ++col) {
                     this.addSlot(new Slot(inv, col + row * 9 + 9, 8 + col * 18, 84 + row * 18));
                 }
             }
 
+            // Hotbar
             for (int i = 0; i < 9; ++i) {
                 this.addSlot(new Slot(inv, i, 8 + i * 18, 142));
             }
@@ -72,6 +72,7 @@ public class LimititensCommandClient {
         public LimitCheckScreen(LimitCheckMenu menu, Inventory inv, Component title) {
             super(menu, inv, title);
             this.imageHeight = 184;
+            this.inventoryLabelY = this.imageHeight - 94;
         }
 
         @Override
@@ -89,7 +90,8 @@ public class LimititensCommandClient {
                     gui.renderItem(stack, x, y);
                     gui.renderItemDecorations(this.font, stack, x, y);
                     
-                    String limit = String.valueOf(this.menu.itemLimits.get(ForgeRegistries.ITEMS.getKey(stack.getItem()).toString()));
+                    String limit = String.valueOf(LimititensCommand.getGlobalItemLimits()
+                        .get(ForgeRegistries.ITEMS.getKey(stack.getItem()).toString()));
                     gui.drawString(this.font, limit, x + 12, y + 9, 0xFFFFFF, true);
                 }
             }
