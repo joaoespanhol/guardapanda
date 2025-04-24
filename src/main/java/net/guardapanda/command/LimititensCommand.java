@@ -45,9 +45,19 @@ import java.util.UUID;
 @Mod.EventBusSubscriber
 public class LimititensCommand {
     private static final Map<String, Integer> globalItemLimits = new HashMap<>();
-    private static final Map<UUID, Map<BlockPos, String>> placedBlocks = new HashMap<>();
+    private static final Map<BlockPos, BlockOwnerInfo> placedBlocks = new HashMap<>();
     private static final File limitsFile = new File("config/guardapanda/global_limits.json");
     private static final File blocksFile = new File("config/guardapanda/placed_blocks.json");
+
+    private static class BlockOwnerInfo {
+        public final UUID owner;
+        public final String itemId;
+
+        public BlockOwnerInfo(UUID owner, String itemId) {
+            this.owner = owner;
+            this.itemId = itemId;
+        }
+    }
 
     static {
         loadGlobalLimits();
@@ -75,7 +85,6 @@ public class LimititensCommand {
                 .then(Commands.literal("list")
                     .executes(ctx -> listLimits(ctx)))
                 .then(Commands.literal("gui")
-                    .requires(source -> source.hasPermission(2))
                     .executes(ctx -> openGui(ctx)))
                 .then(Commands.literal("check")
                     .executes(ctx -> checkLimit(ctx)))
@@ -326,13 +335,8 @@ public class LimititensCommand {
         }
         
         int inventoryCount = countItemsInInventory(player, itemId);
-        int worldCount = 0;
-        List<String> blockLocations = new ArrayList<>();
-        
-        if (heldItem.getItem() instanceof BlockItem) {
-            worldCount = countBlocksInWorld(player, itemId);
-            blockLocations = getBlockLocations(player, itemId);
-        }
+        int worldCount = countBlocksInWorld(player, itemId);
+        List<String> blockLocations = getBlockLocations(player, itemId);
         
         player.sendSystemMessage(Component.literal("§6Informações do item:"));
         player.sendSystemMessage(Component.literal("§7- Item: §e" + heldItem.getDisplayName().getString()));
@@ -355,10 +359,9 @@ public class LimititensCommand {
 
     private static List<String> getBlockLocations(Player player, String itemId) {
         List<String> locations = new ArrayList<>();
-        if (!placedBlocks.containsKey(player.getUUID())) return locations;
         
-        for (Map.Entry<BlockPos, String> entry : placedBlocks.get(player.getUUID()).entrySet()) {
-            if (entry.getValue().equals(itemId)) {
+        for (Map.Entry<BlockPos, BlockOwnerInfo> entry : placedBlocks.entrySet()) {
+            if (entry.getValue().owner.equals(player.getUUID()) && entry.getValue().itemId.equals(itemId)) {
                 BlockPos pos = entry.getKey();
                 locations.add(String.format("X: %d, Y: %d, Z: %d", pos.getX(), pos.getY(), pos.getZ()));
             }
@@ -401,25 +404,19 @@ public class LimititensCommand {
                 return;
             }
             
-            placedBlocks.computeIfAbsent(player.getUUID(), k -> new HashMap<>())
-                .put(event.getPos(), itemId);
+            placedBlocks.put(event.getPos(), new BlockOwnerInfo(player.getUUID(), itemId));
             savePlacedBlocks();
         }
     }
     
     @SubscribeEvent
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
-        Player player = event.getPlayer();
-        if (player == null) return;
-        
         BlockPos pos = event.getPos();
+        BlockOwnerInfo info = placedBlocks.get(pos);
         
-        for (Map.Entry<UUID, Map<BlockPos, String>> entry : placedBlocks.entrySet()) {
-            if (entry.getValue().containsKey(pos)) {
-                entry.getValue().remove(pos);
-                savePlacedBlocks();
-                break;
-            }
+        if (info != null) {
+            placedBlocks.remove(pos);
+            savePlacedBlocks();
         }
     }
 
@@ -472,11 +469,9 @@ public class LimititensCommand {
     }
 
     private static int countBlocksInWorld(Player player, String itemId) {
-        if (!placedBlocks.containsKey(player.getUUID())) return 0;
-        
         int count = 0;
-        for (String blockId : placedBlocks.get(player.getUUID()).values()) {
-            if (blockId.equals(itemId)) {
+        for (BlockOwnerInfo info : placedBlocks.values()) {
+            if (info.owner.equals(player.getUUID()) && info.itemId.equals(itemId)) {
                 count++;
             }
         }
@@ -519,17 +514,18 @@ public class LimititensCommand {
             }
 
             JsonObject root = new JsonObject();
-            placedBlocks.forEach((uuid, blockMap) -> {
-                JsonArray posArray = new JsonArray();
-                blockMap.forEach((pos, itemId) -> {
-                    JsonObject posObj = new JsonObject();
-                    posObj.addProperty("x", pos.getX());
-                    posObj.addProperty("y", pos.getY());
-                    posObj.addProperty("z", pos.getZ());
-                    posObj.addProperty("itemId", itemId);
-                    posArray.add(posObj);
-                });
-                root.add(uuid.toString(), posArray);
+            placedBlocks.forEach((pos, info) -> {
+                JsonObject posObj = new JsonObject();
+                posObj.addProperty("x", pos.getX());
+                posObj.addProperty("y", pos.getY());
+                posObj.addProperty("z", pos.getZ());
+                posObj.addProperty("owner", info.owner.toString());
+                posObj.addProperty("itemId", info.itemId);
+                
+                if (!root.has(info.owner.toString())) {
+                    root.add(info.owner.toString(), new JsonArray());
+                }
+                root.getAsJsonArray(info.owner.toString()).add(posObj);
             });
 
             try (FileWriter writer = new FileWriter(blocksFile)) {
@@ -545,12 +541,12 @@ public class LimititensCommand {
 
         try (FileReader reader = new FileReader(blocksFile)) {
             JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-            root.entrySet().forEach(entry -> {
-                UUID uuid = UUID.fromString(entry.getKey());
-                JsonArray posArray = entry.getValue().getAsJsonArray();
+            
+            for (Map.Entry<String, JsonElement> ownerEntry : root.entrySet()) {
+                UUID owner = UUID.fromString(ownerEntry.getKey());
+                JsonArray posArray = ownerEntry.getValue().getAsJsonArray();
                 
-                Map<BlockPos, String> blockMap = new HashMap<>();
-                posArray.forEach(element -> {
+                for (JsonElement element : posArray) {
                     JsonObject posObj = element.getAsJsonObject();
                     BlockPos pos = new BlockPos(
                         posObj.get("x").getAsInt(),
@@ -558,11 +554,9 @@ public class LimititensCommand {
                         posObj.get("z").getAsInt()
                     );
                     String itemId = posObj.get("itemId").getAsString();
-                    blockMap.put(pos, itemId);
-                });
-                
-                placedBlocks.put(uuid, blockMap);
-            });
+                    placedBlocks.put(pos, new BlockOwnerInfo(owner, itemId));
+                }
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
