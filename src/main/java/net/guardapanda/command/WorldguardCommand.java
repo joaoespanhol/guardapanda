@@ -85,10 +85,10 @@ public class WorldguardCommand {
     private static final Set<String> bypassPlayers = new HashSet<>();
     private static final Set<String> bypassItems = new HashSet<>();
 
-    // Mensagens padrÃ£o
-    private static final Component NO_PERMISSION_MSG = Component.literal("Â§cVocÃª nÃ£o tem permissÃ£o para isso nesta regiÃ£o.");
-    private static final Component REGION_PROTECTED_MSG = Component.literal("Â§cEsta Ã¡rea Ã© protegida.");
-    private static final Component ITEM_NOT_ALLOWED_MSG = Component.literal("Â§cEste item nÃ£o pode ser usado em regiÃµes protegidas.");
+    // Mensagens padrão
+    private static final Component NO_PERMISSION_MSG = Component.literal("§cVocê não tem permissão para isso nesta região.");
+    private static final Component REGION_PROTECTED_MSG = Component.literal("§cEsta área é protegida.");
+    private static final Component ITEM_NOT_ALLOWED_MSG = Component.literal("§cEste item não pode ser usado em regiões protegidas.");
 
     static {
         loadRegionsFromFile();
@@ -405,18 +405,43 @@ public class WorldguardCommand {
             e.printStackTrace();
         }
     }
+	
+	private static boolean hasItemBypass(ItemStack stack, Block block) {
+	    if (stack == null || stack.isEmpty()) return false;
+	    String itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
+	    boolean hasBypass = bypassItems.contains(itemId.toLowerCase());
+	    
+	    // Se não tem bypass, retorna falso
+	    if (!hasBypass) return false;
+	    
+	    // Se tem bypass, verifica se o bloco é do mesmo tipo que o item
+	    if (block != null && stack.getItem() instanceof BlockItem) {
+	        Block itemBlock = ((BlockItem)stack.getItem()).getBlock();
+	        return itemBlock == block;
+	    }
+	    
+	    return false;
+	}
 
+    // Verifica se um BLOCK tem bypass
+    private static boolean hasBlockBypass(Block block) {
+        if (block == null) return false;
+        String blockId = ForgeRegistries.BLOCKS.getKey(block).toString();
+        return bypassItems.contains(blockId.toLowerCase());
+    }
+    
+	// Verifica se um item está na lista de itens banidos
     private static boolean isBannedModItem(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         String itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
         
         if (bypassItems.contains(itemId.toLowerCase())) {
-            return false;
+            return false; // Se o item tem bypass, não está banido
         }
         
         return bannedModItems.contains(itemId.toLowerCase());
     }
-
+    
     @SubscribeEvent
     public static void onFakePlayerDetection(EntityJoinLevelEvent event) {
         if (event.getEntity() instanceof FakePlayer) {
@@ -433,7 +458,7 @@ public class WorldguardCommand {
 	    Player player = event.getEntity();
 	    ItemStack heldItem = player.getMainHandItem();
 	    
-	    // Verificar se o jogador estÃ¡ segurando um machado de ouro
+	    // Verificar se o jogador está segurando um machado de ouro
 	    if (heldItem.getItem() == Items.GOLDEN_AXE && event.getHand() == InteractionHand.MAIN_HAND) {
 	        // Verificar se foi um clique em um bloco
 	        if (event instanceof PlayerInteractEvent.RightClickBlock || 
@@ -444,14 +469,14 @@ public class WorldguardCommand {
 	            // Primeiro ponto com clique esquerdo
 	            if (event instanceof PlayerInteractEvent.LeftClickBlock) {
 	                firstPoint.put(player, clickedPos);
-	                player.sendSystemMessage(Component.literal("Â§aPrimeiro ponto definido em: " + 
+	                player.sendSystemMessage(Component.literal("§aPrimeiro ponto definido em: " + 
 	                    clickedPos.getX() + ", " + clickedPos.getY() + ", " + clickedPos.getZ()));
 	                event.setCanceled(true);
 	            } 
 	            // Segundo ponto com clique direito
 	            else if (event instanceof PlayerInteractEvent.RightClickBlock) {
 	                secondPoint.put(player, clickedPos);
-	                player.sendSystemMessage(Component.literal("Â§aSegundo ponto definido em: " + 
+	                player.sendSystemMessage(Component.literal("§aSegundo ponto definido em: " + 
 	                    clickedPos.getX() + ", " + clickedPos.getY() + ", " + clickedPos.getZ()));
 	                event.setCanceled(true);
 	            }
@@ -469,17 +494,17 @@ public class WorldguardCommand {
             BlockPos pos2 = secondPoint.get(player);
             
             if (pos1 != null && pos2 != null) {
-                player.sendSystemMessage(Component.literal("Â§6Pontos selecionados:"));
-                player.sendSystemMessage(Component.literal("Â§6Ponto 1: " + pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
-                player.sendSystemMessage(Component.literal("Â§6Ponto 2: " + pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
+                player.sendSystemMessage(Component.literal("§6Pontos selecionados:"));
+                player.sendSystemMessage(Component.literal("§6Ponto 1: " + pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
+                player.sendSystemMessage(Component.literal("§6Ponto 2: " + pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
             } else if (pos1 != null) {
-                player.sendSystemMessage(Component.literal("Â§6Apenas o primeiro ponto foi definido: " + 
+                player.sendSystemMessage(Component.literal("§6Apenas o primeiro ponto foi definido: " + 
                     pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
             } else if (pos2 != null) {
-                player.sendSystemMessage(Component.literal("Â§6Apenas o segundo ponto foi definido: " + 
+                player.sendSystemMessage(Component.literal("§6Apenas o segundo ponto foi definido: " + 
                     pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
             } else {
-                player.sendSystemMessage(Component.literal("Â§cNenhum ponto selecionado. Clique em blocos com o machado de ouro para definir os pontos."));
+                player.sendSystemMessage(Component.literal("§cNenhum ponto selecionado. Clique em blocos com o machado de ouro para definir os pontos."));
             }
         }
     }
@@ -498,21 +523,21 @@ public class WorldguardCommand {
                             BlockPos end = secondPoint.get(player);
 
                             if (isRegionProtected(start) || isRegionProtected(end)) {
-                                player.sendSystemMessage(Component.literal("Â§cJÃ¡ existe uma regiÃ£o protegida nesta Ã¡rea!"));
+                                player.sendSystemMessage(Component.literal("§cJá existe uma região protegida nesta área!"));
                                 return 0;
                             }
 
                             Map<String, Boolean> flags = new HashMap<>();
                             protectedRegions.put(regionName, new Region(start, end, flags, player.getName().getString()));
                             saveRegionsToFile();
-                            player.sendSystemMessage(Component.literal("Â§aRegiÃ£o '" + regionName + "' foi protegida com sucesso!"));
+                            player.sendSystemMessage(Component.literal("§aRegião '" + regionName + "' foi protegida com sucesso!"));
                             firstPoint.remove(player);
                             secondPoint.remove(player);
                         } else {
-                            player.sendSystemMessage(Component.literal("Â§cSelecione dois pontos usando o machado de ouro:"));
-                            player.sendSystemMessage(Component.literal("Â§7- Clique normal para definir o primeiro ponto"));
-                            player.sendSystemMessage(Component.literal("Â§7- Clique enquanto segura Shift para definir o segundo ponto"));
-                            player.sendSystemMessage(Component.literal("Â§7- Clique no ar para ver os pontos selecionados"));
+                            player.sendSystemMessage(Component.literal("§cSelecione dois pontos usando o machado de ouro:"));
+                            player.sendSystemMessage(Component.literal("§7- Clique normal para definir o primeiro ponto"));
+                            player.sendSystemMessage(Component.literal("§7- Clique enquanto segura Shift para definir o segundo ponto"));
+                            player.sendSystemMessage(Component.literal("§7- Clique no ar para ver os pontos selecionados"));
                         }
                         return 1;
                     })
@@ -529,12 +554,12 @@ public class WorldguardCommand {
                             if (region.isOwner(player.getName().getString())) {
                                 protectedRegions.remove(regionName);
                                 saveRegionsToFile();
-                                player.sendSystemMessage(Component.literal("Â§aA regiÃ£o '" + regionName + "' foi removida com sucesso."));
+                                player.sendSystemMessage(Component.literal("§aA região '" + regionName + "' foi removida com sucesso."));
                             } else {
-                                player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode removÃª-la."));
+                                player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode removê-la."));
                             }
                         } else {
-                            player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                            player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                         }
                         return 1;
                     })
@@ -553,12 +578,12 @@ public class WorldguardCommand {
                                 if (region.isOwner(player.getName().getString())) {
                                     region.addMember(playerName);
                                     saveRegionsToFile();
-                                    player.sendSystemMessage(Component.literal("Â§aJogador '" + playerName + "' foi adicionado Ã  regiÃ£o '" + regionName + "'."));
+                                    player.sendSystemMessage(Component.literal("§aJogador '" + playerName + "' foi adicionado à região '" + regionName + "'."));
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode adicionar membros."));
+                                    player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode adicionar membros."));
                                 }
                             } else {
-                                player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                             }
                             return 1;
                         })
@@ -578,12 +603,12 @@ public class WorldguardCommand {
                                 if (region.isOwner(player.getName().getString())) {
                                     region.removeMember(playerName);
                                     saveRegionsToFile();
-                                    player.sendSystemMessage(Component.literal("Â§aJogador '" + playerName + "' foi removido da regiÃ£o '" + regionName + "'."));
+                                    player.sendSystemMessage(Component.literal("§aJogador '" + playerName + "' foi removido da região '" + regionName + "'."));
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode remover membros."));
+                                    player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode remover membros."));
                                 }
                             } else {
-                                player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                             }
                             return 1;
                         })
@@ -606,12 +631,12 @@ public class WorldguardCommand {
                                         boolean flagValue = Boolean.parseBoolean(valor);
                                         region.getFlags().put(flag, flagValue);
                                         saveRegionsToFile();
-                                        player.sendSystemMessage(Component.literal("Â§aFlag '" + flag + "' na regiÃ£o '" + regionName + "' foi alterada para '" + flagValue + "'."));
+                                        player.sendSystemMessage(Component.literal("§aFlag '" + flag + "' na região '" + regionName + "' foi alterada para '" + flagValue + "'."));
                                     } else {
-                                        player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode modificar flags."));
+                                        player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode modificar flags."));
                                     }
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                    player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                                 }
                                 return 1;
                             })
@@ -635,12 +660,12 @@ public class WorldguardCommand {
                                         boolean flagValue = Boolean.parseBoolean(valor);
                                         region.setMemberFlag(flag, flagValue);
                                         saveRegionsToFile();
-                                        player.sendSystemMessage(Component.literal("Â§aFlag de membro '" + flag + "' na regiÃ£o '" + regionName + "' foi alterada para '" + flagValue + "'."));
+                                        player.sendSystemMessage(Component.literal("§aFlag de membro '" + flag + "' na região '" + regionName + "' foi alterada para '" + flagValue + "'."));
                                     } else {
-                                        player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode modificar flags de membros."));
+                                        player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode modificar flags de membros."));
                                     }
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                    player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                                 }
                                 return 1;
                             })
@@ -661,12 +686,12 @@ public class WorldguardCommand {
                                 if (region.isOwner(player.getName().getString())) {
                                     region.blockCommand(command);
                                     saveRegionsToFile();
-                                    player.sendSystemMessage(Component.literal("Â§aComando '" + command + "' foi bloqueado na regiÃ£o '" + regionName + "'."));
+                                    player.sendSystemMessage(Component.literal("§aComando '" + command + "' foi bloqueado na região '" + regionName + "'."));
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode bloquear comandos."));
+                                    player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode bloquear comandos."));
                                 }
                             } else {
-                                player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                             }
                             return 1;
                         })
@@ -686,12 +711,12 @@ public class WorldguardCommand {
                                 if (region.isOwner(player.getName().getString())) {
                                     region.unblockCommand(command);
                                     saveRegionsToFile();
-                                    player.sendSystemMessage(Component.literal("Â§aComando '" + command + "' foi desbloqueado na regiÃ£o '" + regionName + "'."));
+                                    player.sendSystemMessage(Component.literal("§aComando '" + command + "' foi desbloqueado na região '" + regionName + "'."));
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode desbloquear comandos."));
+                                    player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode desbloquear comandos."));
                                 }
                             } else {
-                                player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                             }
                             return 1;
                         })
@@ -713,19 +738,19 @@ public class WorldguardCommand {
                                     if (region.isOwner(player.getName().getString())) {
                                         if (tipo.equalsIgnoreCase("entrada")) {
                                             region.setEnterMessage(mensagem);
-                                            player.sendSystemMessage(Component.literal("Â§aMensagem de entrada da regiÃ£o '" + regionName + "' definida para: " + mensagem));
+                                            player.sendSystemMessage(Component.literal("§aMensagem de entrada da região '" + regionName + "' definida para: " + mensagem));
                                         } else if (tipo.equalsIgnoreCase("saida")) {
                                             region.setExitMessage(mensagem);
-                                            player.sendSystemMessage(Component.literal("Â§aMensagem de saÃ­da da regiÃ£o '" + regionName + "' definida para: " + mensagem));
+                                            player.sendSystemMessage(Component.literal("§aMensagem de saída da região '" + regionName + "' definida para: " + mensagem));
                                         } else {
-                                            player.sendSystemMessage(Component.literal("Â§cTipo invÃ¡lido. Use 'entrada' ou 'saida'."));
+                                            player.sendSystemMessage(Component.literal("§cTipo inválido. Use 'entrada' ou 'saida'."));
                                         }
                                         saveRegionsToFile();
                                     } else {
-                                        player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode modificar mensagens."));
+                                        player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode modificar mensagens."));
                                     }
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                    player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                                 }
                                 return 1;
                             })
@@ -748,19 +773,19 @@ public class WorldguardCommand {
                                     if (region.isOwner(player.getName().getString())) {
                                         if (tipo.equalsIgnoreCase("player")) {
                                             region.allowPlayer(nome);
-                                            player.sendSystemMessage(Component.literal("Â§aJogador '" + nome + "' foi permitido na regiÃ£o '" + regionName + "'."));
+                                            player.sendSystemMessage(Component.literal("§aJogador '" + nome + "' foi permitido na região '" + regionName + "'."));
                                         } else if (tipo.equalsIgnoreCase("entity")) {
                                             region.allowEntity(nome);
-                                            player.sendSystemMessage(Component.literal("Â§aEntidade '" + nome + "' foi permitida na regiÃ£o '" + regionName + "'."));
+                                            player.sendSystemMessage(Component.literal("§aEntidade '" + nome + "' foi permitida na região '" + regionName + "'."));
                                         } else {
-                                            player.sendSystemMessage(Component.literal("Â§cTipo invÃ¡lido. Use 'player' ou 'entity'."));
+                                            player.sendSystemMessage(Component.literal("§cTipo inválido. Use 'player' ou 'entity'."));
                                         }
                                         saveRegionsToFile();
                                     } else {
-                                        player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode modificar permissÃµes de entrada."));
+                                        player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode modificar permissões de entrada."));
                                     }
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                    player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                                 }
                                 return 1;
                             })
@@ -783,19 +808,19 @@ public class WorldguardCommand {
                                     if (region.isOwner(player.getName().getString())) {
                                         if (tipo.equalsIgnoreCase("player")) {
                                             region.disallowPlayer(nome);
-                                            player.sendSystemMessage(Component.literal("Â§aJogador '" + nome + "' foi removido da lista de permissÃµes da regiÃ£o '" + regionName + "'."));
+                                            player.sendSystemMessage(Component.literal("§aJogador '" + nome + "' foi removido da lista de permissões da região '" + regionName + "'."));
                                         } else if (tipo.equalsIgnoreCase("entity")) {
                                             region.disallowEntity(nome);
-                                            player.sendSystemMessage(Component.literal("Â§aEntidade '" + nome + "' foi removida da lista de permissÃµes da regiÃ£o '" + regionName + "'."));
+                                            player.sendSystemMessage(Component.literal("§aEntidade '" + nome + "' foi removida da lista de permissões da região '" + regionName + "'."));
                                         } else {
-                                            player.sendSystemMessage(Component.literal("Â§cTipo invÃ¡lido. Use 'player' ou 'entity'."));
+                                            player.sendSystemMessage(Component.literal("§cTipo inválido. Use 'player' ou 'entity'."));
                                         }
                                         saveRegionsToFile();
                                     } else {
-                                        player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o Ã© o dono desta regiÃ£o e nÃ£o pode modificar permissÃµes de entrada."));
+                                        player.sendSystemMessage(Component.literal("§cVocê não é o dono desta região e não pode modificar permissões de entrada."));
                                     }
                                 } else {
-                                    player.sendSystemMessage(Component.literal("Â§cA regiÃ£o '" + regionName + "' nÃ£o existe."));
+                                    player.sendSystemMessage(Component.literal("§cA região '" + regionName + "' não existe."));
                                 }
                                 return 1;
                             })
@@ -813,52 +838,52 @@ public class WorldguardCommand {
                         Region region = entry.getValue();
 
                         if (region.isWithinRegion(playerPos)) {
-                            player.sendSystemMessage(Component.literal("Â§6Flags da regiÃ£o '" + regionName + "':"));
+                            player.sendSystemMessage(Component.literal("§6Flags da região '" + regionName + "':"));
                             for (Map.Entry<String, Boolean> flagEntry : region.getFlags().entrySet()) {
                                 String flag = flagEntry.getKey();
                                 boolean value = flagEntry.getValue();
-                                player.sendSystemMessage(Component.literal("Â§7- " + flag + ": " + value));
+                                player.sendSystemMessage(Component.literal("§7- " + flag + ": " + value));
                             }
                             
-                            player.sendSystemMessage(Component.literal("Â§6Flags de membros:"));
+                            player.sendSystemMessage(Component.literal("§6Flags de membros:"));
                             for (Map.Entry<String, Boolean> flagEntry : region.memberFlags.entrySet()) {
                                 String flag = flagEntry.getKey();
                                 boolean value = flagEntry.getValue();
-                                player.sendSystemMessage(Component.literal("Â§7- " + flag + ": " + value));
+                                player.sendSystemMessage(Component.literal("§7- " + flag + ": " + value));
                             }
                             
                             if (!region.blockedCommands.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("Â§6Comandos bloqueados:"));
+                                player.sendSystemMessage(Component.literal("§6Comandos bloqueados:"));
                                 for (String cmd : region.blockedCommands) {
-                                    player.sendSystemMessage(Component.literal("Â§7- " + cmd));
+                                    player.sendSystemMessage(Component.literal("§7- " + cmd));
                                 }
                             }
                             
                             if (region.enterMessage != null && !region.enterMessage.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("Â§6Mensagem de entrada: Â§7" + region.enterMessage));
+                                player.sendSystemMessage(Component.literal("§6Mensagem de entrada: §7" + region.enterMessage));
                             }
                             if (region.exitMessage != null && !region.exitMessage.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("Â§6Mensagem de saÃ­da: Â§7" + region.exitMessage));
+                                player.sendSystemMessage(Component.literal("§6Mensagem de saída: §7" + region.exitMessage));
                             }
                             
                             if (!region.allowedEntities.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("Â§6Entidades permitidas:"));
+                                player.sendSystemMessage(Component.literal("§6Entidades permitidas:"));
                                 for (String entity : region.allowedEntities) {
-                                    player.sendSystemMessage(Component.literal("Â§7- " + entity));
+                                    player.sendSystemMessage(Component.literal("§7- " + entity));
                                 }
                             }
                             
                             if (!region.allowedPlayers.isEmpty()) {
-                                player.sendSystemMessage(Component.literal("Â§6Jogadores permitidos:"));
+                                player.sendSystemMessage(Component.literal("§6Jogadores permitidos:"));
                                 for (String pl : region.allowedPlayers) {
-                                    player.sendSystemMessage(Component.literal("Â§7- " + pl));
+                                    player.sendSystemMessage(Component.literal("§7- " + pl));
                                 }
                             }
                             return 1;
                         }
                     }
 
-                    player.sendSystemMessage(Component.literal("Â§cVocÃª nÃ£o estÃ¡ em uma regiÃ£o protegida."));
+                    player.sendSystemMessage(Component.literal("§cVocê não está em uma região protegida."));
                     return 0;
                 })
             )
@@ -876,18 +901,18 @@ public class WorldguardCommand {
                         "mod-interaction"
                     );
 
-                    player.sendSystemMessage(Component.literal("Â§6Flags disponÃ­veis:"));
+                    player.sendSystemMessage(Component.literal("§6Flags disponíveis:"));
                     for (String flag : flags) {
-                        player.sendSystemMessage(Component.literal("Â§7- " + flag));
+                        player.sendSystemMessage(Component.literal("§7- " + flag));
                     }
                     
-                    player.sendSystemMessage(Component.literal("\nÂ§6Flags de membros disponÃ­veis:"));
-                    player.sendSystemMessage(Component.literal("Â§7- build"));
-                    player.sendSystemMessage(Component.literal("Â§7- destroy"));
-                    player.sendSystemMessage(Component.literal("Â§7- interact"));
-                    player.sendSystemMessage(Component.literal("Â§7- sign"));
-                    player.sendSystemMessage(Component.literal("Â§7- container-access"));
-                    player.sendSystemMessage(Component.literal("Â§7- use"));
+                    player.sendSystemMessage(Component.literal("\n§6Flags de membros disponíveis:"));
+                    player.sendSystemMessage(Component.literal("§7- build"));
+                    player.sendSystemMessage(Component.literal("§7- destroy"));
+                    player.sendSystemMessage(Component.literal("§7- interact"));
+                    player.sendSystemMessage(Component.literal("§7- sign"));
+                    player.sendSystemMessage(Component.literal("§7- container-access"));
+                    player.sendSystemMessage(Component.literal("§7- use"));
 
                     return 1;
                 })
@@ -899,13 +924,13 @@ public class WorldguardCommand {
                         Player player = context.getSource().getPlayerOrException();
                         
                         if (!itemId.contains(":")) {
-                            player.sendSystemMessage(Component.literal("Â§cFormato invÃ¡lido. Use modid:itemname (ex: create:drill)"));
+                            player.sendSystemMessage(Component.literal("§cFormato inválido. Use modid:itemname (ex: create:drill)"));
                             return 0;
                         }
                         
                         bannedModItems.add(itemId.toLowerCase());
                         saveBannedItems();
-                        player.sendSystemMessage(Component.literal("Â§aItem '" + itemId + "' foi banido de regiÃµes protegidas."));
+                        player.sendSystemMessage(Component.literal("§aItem '" + itemId + "' foi banido de regiões protegidas."));
                         return 1;
                     })
                 )
@@ -918,9 +943,9 @@ public class WorldguardCommand {
                         
                         if (bannedModItems.remove(itemId.toLowerCase())) {
                             saveBannedItems();
-                            player.sendSystemMessage(Component.literal("Â§aItem '" + itemId + "' foi permitido em regiÃµes protegidas."));
+                            player.sendSystemMessage(Component.literal("§aItem '" + itemId + "' foi permitido em regiões protegidas."));
                         } else {
-                            player.sendSystemMessage(Component.literal("Â§cItem '" + itemId + "' nÃ£o estava na lista de banidos."));
+                            player.sendSystemMessage(Component.literal("§cItem '" + itemId + "' não estava na lista de banidos."));
                         }
                         return 1;
                     })
@@ -931,11 +956,11 @@ public class WorldguardCommand {
                     Player player = context.getSource().getPlayerOrException();
                     
                     if (bannedModItems.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("Â§aNenhum item estÃ¡ banido no momento."));
+                        player.sendSystemMessage(Component.literal("§aNenhum item está banido no momento."));
                     } else {
-                        player.sendSystemMessage(Component.literal("Â§6Itens banidos:"));
+                        player.sendSystemMessage(Component.literal("§6Itens banidos:"));
                         for (String item : bannedModItems) {
-                            player.sendSystemMessage(Component.literal("Â§7- " + item));
+                            player.sendSystemMessage(Component.literal("§7- " + item));
                         }
                     }
                     return 1;
@@ -946,11 +971,11 @@ public class WorldguardCommand {
                     Player player = context.getSource().getPlayerOrException();
                     
                     if (detectedFakePlayers.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("Â§aNenhum FakePlayer foi detectado ainda."));
+                        player.sendSystemMessage(Component.literal("§aNenhum FakePlayer foi detectado ainda."));
                     } else {
-                        player.sendSystemMessage(Component.literal("Â§6FakePlayers detectados:"));
+                        player.sendSystemMessage(Component.literal("§6FakePlayers detectados:"));
                         for (String fakePlayer : detectedFakePlayers) {
-                            player.sendSystemMessage(Component.literal("Â§7- " + fakePlayer));
+                            player.sendSystemMessage(Component.literal("§7- " + fakePlayer));
                         }
                     }
                     return 1;
@@ -964,10 +989,10 @@ public class WorldguardCommand {
                         
                         if (bypassPlayers.contains(playerName)) {
                             bypassPlayers.remove(playerName);
-                            context.getSource().sendSystemMessage(Component.literal("Â§aBypass removido para " + playerName));
+                            context.getSource().sendSystemMessage(Component.literal("§aBypass removido para " + playerName));
                         } else {
                             bypassPlayers.add(playerName);
-                            context.getSource().sendSystemMessage(Component.literal("Â§aBypass concedido para " + playerName));
+                            context.getSource().sendSystemMessage(Component.literal("§aBypass concedido para " + playerName));
                         }
                         return 1;
                     })
@@ -979,9 +1004,9 @@ public class WorldguardCommand {
                     .executes(context -> {
                         String playerName = StringArgumentType.getString(context, "player").toLowerCase();
                         if (bypassPlayers.remove(playerName)) {
-                            context.getSource().sendSystemMessage(Component.literal("Â§aRemovido bypass do jogador " + playerName));
+                            context.getSource().sendSystemMessage(Component.literal("§aRemovido bypass do jogador " + playerName));
                         } else {
-                            context.getSource().sendSystemMessage(Component.literal("Â§cJogador " + playerName + " nÃ£o estava na lista de bypass"));
+                            context.getSource().sendSystemMessage(Component.literal("§cJogador " + playerName + " não estava na lista de bypass"));
                         }
                         return 1;
                     })
@@ -994,7 +1019,7 @@ public class WorldguardCommand {
                     ItemStack heldItem = player.getMainHandItem();
                     
                     if (heldItem.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("Â§cVocÃª precisa segurar um item na mÃ£o principal!"));
+                        player.sendSystemMessage(Component.literal("§cVocê precisa segurar um item/bloco na mão principal!"));
                         return 0;
                     }
                     
@@ -1002,9 +1027,9 @@ public class WorldguardCommand {
                     
                     if (bypassItems.add(itemId.toLowerCase())) {
                         saveItemBypass();
-                        player.sendSystemMessage(Component.literal("Â§aItem " + itemId + " adicionado ao bypass global!"));
+                        player.sendSystemMessage(Component.literal("§aItem/Bloco " + itemId + " adicionado ao bypass!"));
                     } else {
-                        player.sendSystemMessage(Component.literal("Â§cEste item jÃ¡ tinha bypass global!"));
+                        player.sendSystemMessage(Component.literal("§cEste item/bloco já tinha bypass!"));
                     }
                     return 1;
                 })
@@ -1016,7 +1041,7 @@ public class WorldguardCommand {
                     ItemStack heldItem = player.getMainHandItem();
                     
                     if (heldItem.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("Â§cVocÃª precisa segurar um item na mÃ£o principal!"));
+                        player.sendSystemMessage(Component.literal("§cVocê precisa segurar um item/bloco na mão principal!"));
                         return 0;
                     }
                     
@@ -1024,9 +1049,9 @@ public class WorldguardCommand {
                     
                     if (bypassItems.remove(itemId.toLowerCase())) {
                         saveItemBypass();
-                        player.sendSystemMessage(Component.literal("Â§aItem " + itemId + " removido do bypass global!"));
+                        player.sendSystemMessage(Component.literal("§aItem/Bloco " + itemId + " removido do bypass!"));
                     } else {
-                        player.sendSystemMessage(Component.literal("Â§cEste item nÃ£o estava no bypass global!"));
+                        player.sendSystemMessage(Component.literal("§cEste item/bloco não estava no bypass!"));
                     }
                     return 1;
                 })
@@ -1037,11 +1062,11 @@ public class WorldguardCommand {
                     Player player = context.getSource().getPlayerOrException();
                     
                     if (bypassItems.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("Â§aNenhum item tem bypass global no momento."));
+                        player.sendSystemMessage(Component.literal("§aNenhum item/bloco tem bypass no momento."));
                     } else {
-                        player.sendSystemMessage(Component.literal("Â§6Itens com bypass global:"));
+                        player.sendSystemMessage(Component.literal("§6Itens/Blocos com bypass:"));
                         for (String item : bypassItems) {
-                            player.sendSystemMessage(Component.literal("Â§7- " + item));
+                            player.sendSystemMessage(Component.literal("§7- " + item));
                         }
                     }
                     return 1;
@@ -1049,82 +1074,125 @@ public class WorldguardCommand {
             )
         );
     }
+	
+	@SubscribeEvent
+	public static void onBlockBreak(BlockEvent.BreakEvent event) {
+	    Player player = event.getPlayer();
+	    BlockPos pos = event.getPos();
+	    BlockState state = event.getState();
+	    Block block = state.getBlock();
+	    ItemStack heldItem = player.getMainHandItem();
+	
+	    // Verifica se pode quebrar com base nas regras de bypass
+	    if (canBreakWithBypass(heldItem, block)) {
+	        return; // Permite quebrar
+	    }
+	
+	    // Verificação para placas
+	    if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
+	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
+	            event.setCanceled(true);
+	            player.sendSystemMessage(NO_PERMISSION_MSG);
+	            return;
+	        }
+	    }
+	
+	    // Verificação para FakePlayers (mods)
+	    if (player instanceof FakePlayer) {
+	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
+	            event.setCanceled(true);
+	            return;
+	        }
+	    }
+	    
+	    // Verificação para itens banidos
+	    if (isBannedModItem(player.getMainHandItem())) {
+	        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
+	            event.setCanceled(true);
+	            player.sendSystemMessage(ITEM_NOT_ALLOWED_MSG);
+	            return;
+	        }
+	    }
+	    
+	    // Verificação padrão de proteção de região
+	    if (isRegionProtected(pos) && !isFlagEnabled(pos, "destroy", player)) {
+	        event.setCanceled(true);
+	        player.sendSystemMessage(NO_PERMISSION_MSG);
+	    }
+	}
+	
+	// Nova função auxiliar para verificar regras de bypass
+	private static boolean canBreakWithBypass(ItemStack heldItem, Block block) {
+	    // Se está quebrando com a mão vazia, verifica se o bloco foi colocado com bypass
+	    if (heldItem.isEmpty()) {
+	        return wasPlacedWithBypass(block);
+	    }
+	    
+	    // Verifica se o item tem bypass
+	    String itemId = ForgeRegistries.ITEMS.getKey(heldItem.getItem()).toString();
+	    boolean itemHasBypass = bypassItems.contains(itemId.toLowerCase());
+	    
+	    // Se o item tem bypass, verifica se é do mesmo tipo que o bloco
+	    if (itemHasBypass && heldItem.getItem() instanceof BlockItem) {
+	        Block itemBlock = ((BlockItem)heldItem.getItem()).getBlock();
+	        return itemBlock == block;
+	    }
+	    
+	    // Se não tem bypass ou não é do mesmo tipo, verifica se o bloco foi colocado com bypass
+	    return wasPlacedWithBypass(block);
+	}
+	
+	// Verifica se o bloco foi colocado com um item que tem bypass
+	private static boolean wasPlacedWithBypass(Block block) {
+	    if (block == null) return false;
+	    String blockId = ForgeRegistries.BLOCKS.getKey(block).toString();
+	    return bypassItems.contains(blockId.toLowerCase());
+	}
 
-    @SubscribeEvent
-    public static void onBlockBreak(BlockEvent.BreakEvent event) {
-        Player player = event.getPlayer();
-        BlockPos pos = event.getPos();
-        BlockState state = event.getState();
+ 
+@SubscribeEvent
+public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+    if (!(event.getEntity() instanceof Player)) return;
 
-        if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
-            if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
-                event.setCanceled(true);
-                player.sendSystemMessage(NO_PERMISSION_MSG);
-                return;
-            }
-        }
+    Player player = (Player) event.getEntity();
+    BlockPos pos = event.getPos();
+    BlockState state = event.getPlacedBlock();
+    Block block = state.getBlock();
+    ItemStack heldItem = player.getMainHandItem();
 
-        if (player instanceof FakePlayer) {
-            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
-                event.setCanceled(true);
-                return;
-            }
-        }
+    // Se o jogador está segurando um item com bypass E o bloco sendo colocado é do mesmo tipo
+    if (hasItemBypass(heldItem, block)) {
+        return; // Permite colocar apenas se for o mesmo tipo
+    }
 
-        if (isBannedModItem(player.getMainHandItem())) {
-            if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
-                event.setCanceled(true);
-                player.sendSystemMessage(ITEM_NOT_ALLOWED_MSG);
-                return;
-            }
-        }
-
-        if (isRegionProtected(pos)) {
-            if (!isFlagEnabled(pos, "destroy", player)) {
-                event.setCanceled(true);
-                player.sendSystemMessage(NO_PERMISSION_MSG);
-            }
+    if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
+        if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
+            event.setCanceled(true);
+            player.sendSystemMessage(NO_PERMISSION_MSG);
+            return;
         }
     }
 
-    @SubscribeEvent
-    public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
-        if (event.getEntity() instanceof Player) {
-            Player player = (Player) event.getEntity();
-            BlockPos pos = event.getPos();
-            BlockState state = event.getPlacedBlock();
-    
-            if (state.getBlock() instanceof SignBlock || state.getBlock() instanceof WallSignBlock) {
-                if (isRegionProtected(pos) && !isFlagEnabled(pos, "sign", player)) {
-                    event.setCanceled(true);
-                    player.sendSystemMessage(NO_PERMISSION_MSG);
-                    return;
-                }
-            }
-    
-            if (player instanceof FakePlayer) {
-                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
-                    event.setCanceled(true);
-                    return;
-                }
-            }
-    
-            if (isBannedModItem(player.getMainHandItem())) {
-                if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
-                    event.setCanceled(true);
-                    player.sendSystemMessage(ITEM_NOT_ALLOWED_MSG);
-                    return;
-                }
-            }
-    
-            if (isRegionProtected(pos)) {
-                if (!isFlagEnabled(pos, "build", player)) {
-                    event.setCanceled(true);
-                    player.sendSystemMessage(NO_PERMISSION_MSG);
-                }
-            }
+    if (player instanceof FakePlayer) {
+        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", null)) {
+            event.setCanceled(true);
+            return;
         }
     }
+
+    if (isBannedModItem(player.getMainHandItem())) {
+        if (isRegionProtected(pos) && !isFlagEnabled(pos, "mod-interaction", player)) {
+            event.setCanceled(true);
+            player.sendSystemMessage(ITEM_NOT_ALLOWED_MSG);
+            return;
+        }
+    }
+    
+    if (isRegionProtected(pos) && !isFlagEnabled(pos, "build", player)) {
+        event.setCanceled(true);
+        player.sendSystemMessage(NO_PERMISSION_MSG);
+    }
+}
 
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
@@ -1159,20 +1227,20 @@ public class WorldguardCommand {
 	        BlockPos pos2 = secondPoint.get(player);
 	        
 	        if (pos1 != null && pos2 != null) {
-	            player.sendSystemMessage(Component.literal("Â§6Pontos selecionados:"));
-	            player.sendSystemMessage(Component.literal("Â§6Ponto 1: " + pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
-	            player.sendSystemMessage(Component.literal("Â§6Ponto 2: " + pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
+	            player.sendSystemMessage(Component.literal("§6Pontos selecionados:"));
+	            player.sendSystemMessage(Component.literal("§6Ponto 1: " + pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
+	            player.sendSystemMessage(Component.literal("§6Ponto 2: " + pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
 	        } else if (pos1 != null) {
-	            player.sendSystemMessage(Component.literal("Â§6Apenas o primeiro ponto foi definido: " + 
+	            player.sendSystemMessage(Component.literal("§6Apenas o primeiro ponto foi definido: " + 
 	                pos1.getX() + ", " + pos1.getY() + ", " + pos1.getZ()));
 	        } else if (pos2 != null) {
-	            player.sendSystemMessage(Component.literal("Â§6Apenas o segundo ponto foi definido: " + 
+	            player.sendSystemMessage(Component.literal("§6Apenas o segundo ponto foi definido: " + 
 	                pos2.getX() + ", " + pos2.getY() + ", " + pos2.getZ()));
 	        } else {
-	            player.sendSystemMessage(Component.literal("Â§cNenhum ponto selecionado. Use:"));
-	            player.sendSystemMessage(Component.literal("Â§7- Clique ESQUERDO em blocos para definir o primeiro ponto"));
-	            player.sendSystemMessage(Component.literal("Â§7- Clique DIREITO em blocos para definir o segundo ponto"));
-	            player.sendSystemMessage(Component.literal("Â§7- Clique DIREITO no ar para ver os pontos selecionados"));
+	            player.sendSystemMessage(Component.literal("§cNenhum ponto selecionado. Use:"));
+	            player.sendSystemMessage(Component.literal("§7- Clique ESQUERDO em blocos para definir o primeiro ponto"));
+	            player.sendSystemMessage(Component.literal("§7- Clique DIREITO em blocos para definir o segundo ponto"));
+	            player.sendSystemMessage(Component.literal("§7- Clique DIREITO no ar para ver os pontos selecionados"));
 	        }
 	        event.setCanceled(true);
 	    }
@@ -1269,6 +1337,15 @@ public class WorldguardCommand {
             }
         }
     }
+
+	private static boolean isSameBlockType(Block block, ItemStack stack) {
+	    if (stack == null || stack.isEmpty() || block == null) return false;
+	    Item item = stack.getItem();
+	    if (item instanceof BlockItem) {
+	        return ((BlockItem)item).getBlock() == block;
+	    }
+	    return false;
+	}
 
     @SubscribeEvent
     public static void onLivingDrops(LivingDropsEvent event) {

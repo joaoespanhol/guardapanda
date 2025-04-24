@@ -9,6 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.SimpleContainer;
@@ -16,10 +17,18 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.registries.ForgeRegistries;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 
 @OnlyIn(Dist.CLIENT)
 public class LimititensCommandClient {
+    private static final ResourceLocation GUI_BACKGROUND = new ResourceLocation("textures/gui/container/generic_54.png");
+    private static final int SLOTS_PER_ROW = 9;
+    private static final int VISIBLE_SLOT_ROWS = 5;
+    private static final int SLOTS_PER_PAGE = SLOTS_PER_ROW * VISIBLE_SLOT_ROWS - 2; // Reserve 2 slots for arrows
+
     public static void openGui(Player player) {
         Minecraft.getInstance().setScreen(new LimitCheckScreen(
             new LimitCheckMenu(0, player.getInventory()),
@@ -29,31 +38,58 @@ public class LimititensCommandClient {
     }
 
     public static class LimitCheckMenu extends AbstractContainerMenu {
-        public final SimpleContainer container;
-
+        private int currentPage = 0;
+        
         public LimitCheckMenu(int id, Inventory inv) {
             super(null, id);
-            this.container = new SimpleContainer(Math.min(54, LimititensCommand.getGlobalItemLimits().size() + 9));
+            updateSlots();
+        }
 
-            int slot = 0;
-            for (Map.Entry<String, Integer> entry : LimititensCommand.getGlobalItemLimits().entrySet()) {
+        public int getCurrentPage() {
+            return currentPage;
+        }
+
+        public int getMaxPages() {
+            return Math.max(1, (int) Math.ceil((double) LimititensCommand.getGlobalItemLimits().size() / SLOTS_PER_PAGE));
+        }
+
+        private void updateSlots() {
+            this.slots.clear();
+
+            List<Map.Entry<String, Integer>> cachedEntries = new ArrayList<>(LimititensCommand.getGlobalItemLimits().entrySet());
+            int startIndex = currentPage * SLOTS_PER_PAGE;
+            int endIndex = Math.min(startIndex + SLOTS_PER_PAGE, cachedEntries.size());
+            
+            // Position items in a grid, leaving space for arrows
+            for (int i = startIndex; i < endIndex; i++) {
+                var entry = cachedEntries.get(i);
                 ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(entry.getKey())));
                 if (!stack.isEmpty()) {
-                    container.setItem(slot, stack);
-                    slot++;
+                    int slotIndex = i - startIndex;
+                    int row = slotIndex / (SLOTS_PER_ROW - 1); // One less column to make space
+                    int col = slotIndex % (SLOTS_PER_ROW - 1);
+                    
+                    // Skip the last column if we're in the last row to make space for arrows
+                    if (row == VISIBLE_SLOT_ROWS - 1 && col >= SLOTS_PER_ROW - 3) {
+                        col = SLOTS_PER_ROW - 3 + (col - (SLOTS_PER_ROW - 3));
+                    }
+                    
+                    this.addSlot(new ReadOnlySlot(stack, 8 + col * 18, 18 + row * 18));
                 }
             }
+        }
 
-            // Slots do inventário
-            for (int row = 0; row < 3; ++row) {
-                for (int col = 0; col < 9; ++col) {
-                    this.addSlot(new Slot(inv, col + row * 9 + 9, 8 + col * 18, 84 + row * 18));
-                }
+        public void nextPage() {
+            if (currentPage < getMaxPages() - 1) {
+                currentPage++;
+                updateSlots();
             }
+        }
 
-            // Hotbar
-            for (int i = 0; i < 9; ++i) {
-                this.addSlot(new Slot(inv, i, 8 + i * 18, 142));
+        public void prevPage() {
+            if (currentPage > 0) {
+                currentPage--;
+                updateSlots();
             }
         }
 
@@ -66,33 +102,99 @@ public class LimititensCommandClient {
         public ItemStack quickMoveStack(Player player, int index) {
             return ItemStack.EMPTY;
         }
+
+        @Override
+        public void clicked(int slotId, int button, ClickType clickType, Player player) {
+            // Block all interactions
+        }
     }
 
     public static class LimitCheckScreen extends AbstractContainerScreen<LimitCheckMenu> {
+        private Button prevButton;
+        private Button nextButton;
+        private Button pageLabel;
+
         public LimitCheckScreen(LimitCheckMenu menu, Inventory inv, Component title) {
             super(menu, inv, title);
-            this.imageHeight = 184;
-            this.inventoryLabelY = this.imageHeight - 94;
+            this.imageHeight = 222;
+            this.inventoryLabelY = -1000;
+        }
+
+        @Override
+        protected void init() {
+            super.init();
+            
+            // Position arrows in the reserved slots (last two slots of last row)
+            int arrowX1 = this.leftPos + this.imageWidth - 40;
+            int arrowX2 = this.leftPos + this.imageWidth - 20;
+            int arrowY = this.topPos + 18 + (VISIBLE_SLOT_ROWS - 1) * 18;
+            
+            prevButton = Button.builder(Component.literal("◀"), button -> {
+                menu.prevPage();
+                updateButtonStates();
+            }).bounds(arrowX1, arrowY, 18, 18).build();
+            
+            nextButton = Button.builder(Component.literal("▶"), button -> {
+                menu.nextPage();
+                updateButtonStates();
+            }).bounds(arrowX2, arrowY, 18, 18).build();
+            
+            pageLabel = Button.builder(
+                Component.literal((menu.getCurrentPage() + 1) + "/" + menu.getMaxPages()), 
+                button -> {}
+            ).bounds(arrowX1 + 9, arrowY, 22, 18).build();
+            
+            this.addRenderableWidget(prevButton);
+            this.addRenderableWidget(nextButton);
+            this.addRenderableWidget(pageLabel);
+            
+            updateButtonStates();
+        }
+
+        private void updateButtonStates() {
+            int maxPages = menu.getMaxPages();
+            boolean showButtons = maxPages > 1;
+            
+            prevButton.visible = showButtons;
+            nextButton.visible = showButtons;
+            pageLabel.visible = showButtons;
+            
+            if (showButtons) {
+                prevButton.active = menu.getCurrentPage() > 0;
+                nextButton.active = menu.getCurrentPage() < maxPages - 1;
+                pageLabel.setMessage(Component.literal((menu.getCurrentPage() + 1) + "/" + maxPages));
+            }
         }
 
         @Override
         protected void renderBg(GuiGraphics gui, float partialTicks, int mouseX, int mouseY) {
-            this.renderBackground(gui);
-            gui.blit(new ResourceLocation("textures/gui/container/generic_54.png"), 
-                this.leftPos, this.topPos, 0, 0, this.imageWidth, this.imageHeight);
+            int x = this.leftPos;
+            int y = this.topPos;
             
-            for (int i = 0; i < this.menu.container.getContainerSize(); i++) {
-                ItemStack stack = this.menu.container.getItem(i);
-                if (!stack.isEmpty()) {
-                    int x = this.leftPos + 8 + (i % 9) * 18;
-                    int y = this.topPos + 18 + (i / 9) * 18;
-                    
-                    gui.renderItem(stack, x, y);
-                    gui.renderItemDecorations(this.font, stack, x, y);
-                    
+            // Main inventory background
+            gui.blit(GUI_BACKGROUND, x, y, 0, 0, this.imageWidth, VISIBLE_SLOT_ROWS * 18 + 17);
+            
+            // Extended background for buttons
+            gui.blit(GUI_BACKGROUND, 
+                x, y + VISIBLE_SLOT_ROWS * 18 + 17, 
+                0, VISIBLE_SLOT_ROWS * 18 + 17, 
+                this.imageWidth, 56);
+            
+            // Render item limits
+            for (Slot slot : this.menu.slots) {
+                if (slot instanceof ReadOnlySlot readOnlySlot && !readOnlySlot.getItem().isEmpty()) {
+                    ItemStack stack = readOnlySlot.getItem();
                     String limit = String.valueOf(LimititensCommand.getGlobalItemLimits()
                         .get(ForgeRegistries.ITEMS.getKey(stack.getItem()).toString()));
-                    gui.drawString(this.font, limit, x + 12, y + 9, 0xFFFFFF, true);
+                    
+                    gui.drawString(
+                        this.font, 
+                        limit, 
+                        x + slot.x + 19 - this.font.width(limit) / 2, 
+                        y + slot.y + 6, 
+                        0xFFFFFF,
+                        false
+                    );
                 }
             }
         }
@@ -100,22 +202,51 @@ public class LimititensCommandClient {
         @Override
         protected void renderLabels(GuiGraphics gui, int mouseX, int mouseY) {
             gui.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, 0x404040, false);
-            gui.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 0x404040, false);
         }
 
         @Override
         public void render(GuiGraphics gui, int mouseX, int mouseY, float partialTicks) {
+            this.renderBackground(gui);
             super.render(gui, mouseX, mouseY, partialTicks);
             this.renderTooltip(gui, mouseX, mouseY);
         }
 
         @Override
-        protected void init() {
-            super.init();
-            this.addRenderableWidget(Button.builder(Component.literal("Fechar"), 
-                button -> this.onClose())
-                .bounds(this.width / 2 - 50, this.height - 30, 100, 20)
-                .build());
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (this.getSlotUnderMouse() != null) {
+                return true; // Block slot clicks
+            }
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+    }
+
+    public static class ReadOnlySlot extends Slot {
+        private final ItemStack displayStack;
+
+        public ReadOnlySlot(ItemStack stack, int x, int y) {
+            super(new SimpleContainer(1), 0, x, y);
+            this.displayStack = stack;
+            ((SimpleContainer)this.container).setItem(0, stack.copy());
+        }
+
+        @Override
+        public ItemStack getItem() {
+            return displayStack.copy();
+        }
+
+        @Override
+        public boolean mayPlace(ItemStack stack) {
+            return false;
+        }
+
+        @Override
+        public boolean mayPickup(Player player) {
+            return false;
+        }
+
+        @Override
+        public void set(ItemStack stack) {
+            // Prevent any changes
         }
     }
 }

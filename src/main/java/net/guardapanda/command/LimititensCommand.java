@@ -6,8 +6,6 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,14 +14,14 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.EntityItemPickupEvent;
@@ -32,17 +30,20 @@ import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.loading.FMLEnvironment;
 import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.registries.ForgeRegistries;
-
-import java.io.*;
-import java.util.*;
-import java.util.function.Consumer;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Mod.EventBusSubscriber
 public class LimititensCommand {
-
     private static final Map<String, Integer> globalItemLimits = new HashMap<>();
     private static final Map<UUID, Map<BlockPos, String>> placedBlocks = new HashMap<>();
     private static final File limitsFile = new File("config/guardapanda/global_limits.json");
@@ -74,13 +75,13 @@ public class LimititensCommand {
                 .then(Commands.literal("list")
                     .executes(ctx -> listLimits(ctx)))
                 .then(Commands.literal("gui")
-                .requires(source -> source.hasPermission(2))
+                    .requires(source -> source.hasPermission(2))
                     .executes(ctx -> openGui(ctx)))
                 .then(Commands.literal("check")
                     .executes(ctx -> checkLimit(ctx)))
         );
     }
-
+    
     private static int setLimit(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         ItemStack heldItem = player.getMainHandItem();
@@ -149,7 +150,7 @@ public class LimititensCommand {
             return 0;
         }
         
-        MenuProvider menuProvider = new MenuProvider() {
+        NetworkHooks.openScreen(player, new MenuProvider() {
             @Override
             public Component getDisplayName() {
                 return Component.literal("Limites Globais de Itens");
@@ -159,36 +160,90 @@ public class LimititensCommand {
             public AbstractContainerMenu createMenu(int windowId, Inventory playerInventory, Player player) {
                 return new ReadOnlyContainerMenu(windowId, playerInventory);
             }
-        };
-        
-        NetworkHooks.openScreen(player, menuProvider);
+        });
         return 1;
     }
 
     public static class ReadOnlyContainerMenu extends AbstractContainerMenu {
+        private static final int SLOTS_PER_ROW = 9;
+        private static final int VISIBLE_SLOT_ROWS = 5;
+        private static final int ITEMS_PER_PAGE = SLOTS_PER_ROW * VISIBLE_SLOT_ROWS - 2; // Reserve 2 slots for arrows
+        private int currentPage = 0;
+        
         public ReadOnlyContainerMenu(int id, Inventory playerInventory) {
-            super(MenuType.GENERIC_9x6, id);
+            super(MenuType.GENERIC_9x5, id);
+            updateSlots();
+        }
+
+        public int getCurrentPage() {
+            return currentPage;
+        }
+
+        public int getMaxPages() {
+            return Math.max(1, (int) Math.ceil((double) globalItemLimits.size() / ITEMS_PER_PAGE));
+        }
+
+        private void updateSlots() {
+            this.slots.clear();
             
-            // Slots de visualização dos itens com limites
-            int slotIndex = 0;
-            for (Map.Entry<String, Integer> entry : globalItemLimits.entrySet()) {
+            List<Map.Entry<String, Integer>> entries = new ArrayList<>(globalItemLimits.entrySet());
+            int startIndex = currentPage * ITEMS_PER_PAGE;
+            int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, entries.size());
+            
+            for (int i = startIndex; i < endIndex; i++) {
+                Map.Entry<String, Integer> entry = entries.get(i);
                 ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation(entry.getKey())));
                 if (!stack.isEmpty()) {
-                    this.addSlot(new ReadOnlySlot(stack, slotIndex % 9, slotIndex / 9));
-                    slotIndex++;
+                    int slotIndex = i - startIndex;
+                    int row = slotIndex / (SLOTS_PER_ROW - 1);
+                    int col = slotIndex % (SLOTS_PER_ROW - 1);
+                    
+                    if (row == VISIBLE_SLOT_ROWS - 1 && col >= SLOTS_PER_ROW - 3) {
+                        col = SLOTS_PER_ROW - 3;
+                    }
+                    
+                    this.addSlot(new ReadOnlySlot(stack, 8 + col * 18, 18 + row * 18));
                 }
             }
+            
+            if (getMaxPages() > 1) {
+                // Previous arrow slot (second to last slot)
+                this.addSlot(new ArrowSlot(true, 8 + (SLOTS_PER_ROW - 2) * 18, 18 + (VISIBLE_SLOT_ROWS - 1) * 18));
+                // Next arrow slot (last slot)
+                this.addSlot(new ArrowSlot(false, 8 + (SLOTS_PER_ROW - 1) * 18, 18 + (VISIBLE_SLOT_ROWS - 1) * 18));
+            }
+        }
 
-            // Slots do inventário do jogador (somente visualização)
-            for (int row = 0; row < 3; ++row) {
-                for (int col = 0; col < 9; ++col) {
-                    this.addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 84 + row * 18));
+        @Override
+        public void clicked(int slotId, int button, ClickType clickType, Player player) {
+            if (slotId >= 0 && slotId < this.slots.size()) {
+                Slot slot = this.slots.get(slotId);
+                if (slot instanceof ArrowSlot) {
+                    ArrowSlot arrowSlot = (ArrowSlot) slot;
+                    if (arrowSlot.isPrevious) {
+                        prevPage();
+                    } else {
+                        nextPage();
+                    }
+                    return;
                 }
             }
+            super.clicked(slotId, button, clickType, player);
+        }
 
-            // Hotbar (somente visualização)
-            for (int i = 0; i < 9; ++i) {
-                this.addSlot(new Slot(playerInventory, i, 8 + i * 18, 142));
+        public void nextPage() {
+            if (currentPage < getMaxPages() - 1) {
+                currentPage++;
+                updateSlots();
+                broadcastChanges();
+            }
+        }
+
+        public void prevPage() {
+            if (currentPage > 0) {
+                currentPage--;
+                updateSlots();
+                broadcastChanges();
             }
         }
 
@@ -201,14 +256,36 @@ public class LimititensCommand {
         public boolean stillValid(Player player) {
             return true;
         }
+
+        public static class ArrowSlot extends Slot {
+            private final boolean isPrevious;
+            
+            public ArrowSlot(boolean isPrevious, int x, int y) {
+                super(new SimpleContainer(1), 0, x, y);
+                this.isPrevious = isPrevious;
+                ((SimpleContainer)this.container).setItem(0, 
+                    isPrevious ? new ItemStack(Items.ARROW) : new ItemStack(Items.SPECTRAL_ARROW));
+            }
+
+            @Override
+            public boolean mayPlace(ItemStack stack) {
+                return false;
+            }
+
+            @Override
+            public boolean mayPickup(Player player) {
+                return false;
+            }
+        }
     }
 
     public static class ReadOnlySlot extends Slot {
         private final ItemStack displayStack;
 
         public ReadOnlySlot(ItemStack stack, int x, int y) {
-            super(new SimpleContainer(1), 0, x * 18 + 8, y * 18 + 18);
+            super(new SimpleContainer(1), 0, x, y);
             this.displayStack = stack;
+            ((SimpleContainer)this.container).setItem(0, stack.copy());
         }
 
         @Override
@@ -224,6 +301,11 @@ public class LimititensCommand {
         @Override
         public boolean mayPickup(Player player) {
             return false;
+        }
+
+        @Override
+        public void set(ItemStack stack) {
+            // Prevent any changes
         }
     }
 
@@ -312,6 +394,8 @@ public class LimititensCommand {
             ItemStack stack = new ItemStack(event.getPlacedBlock().getBlock());
             String itemId = ForgeRegistries.ITEMS.getKey(stack.getItem()).toString();
             
+            if (!globalItemLimits.containsKey(itemId)) return;
+            
             if (!checkItemLimit(player, stack)) {
                 event.setCanceled(true);
                 return;
@@ -326,9 +410,16 @@ public class LimititensCommand {
     @SubscribeEvent
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
         Player player = event.getPlayer();
-        if (player != null && placedBlocks.containsKey(player.getUUID())) {
-            placedBlocks.get(player.getUUID()).remove(event.getPos());
-            savePlacedBlocks();
+        if (player == null) return;
+        
+        BlockPos pos = event.getPos();
+        
+        for (Map.Entry<UUID, Map<BlockPos, String>> entry : placedBlocks.entrySet()) {
+            if (entry.getValue().containsKey(pos)) {
+                entry.getValue().remove(pos);
+                savePlacedBlocks();
+                break;
+            }
         }
     }
 
