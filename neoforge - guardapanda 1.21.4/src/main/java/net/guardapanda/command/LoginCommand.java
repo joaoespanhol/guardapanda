@@ -7,8 +7,10 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.MessageArgument;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec2;
@@ -74,8 +76,32 @@ public class LoginCommand {
         net.minecraft.world.level.GameType originalGameMode;
         
         PlayerState(ServerPlayer player) {
-            this.position = player.position();
-            this.rotation = player.getRotationVector();
+            // Se o jogador está morto/esperando respawn, usamos o ponto de respawn (cama ou spawn global)
+            try {
+                if (player.isDeadOrDying()) {
+                    ServerLevel level = player.serverLevel();
+                    BlockPos respawnPos = player.getRespawnPosition();
+                    float angle = player.getRespawnAngle();
+
+                    if (respawnPos != null) {
+                        this.position = Vec3.atBottomCenterOf(respawnPos);
+                        this.rotation = new Vec2(angle, 0);
+                    } else {
+                        BlockPos worldSpawn = level.getSharedSpawnPos();
+                        this.position = Vec3.atBottomCenterOf(worldSpawn);
+                        this.rotation = new Vec2(0, 0);
+                    }
+                } else {
+                    // Se está vivo, congela na posição atual
+                    this.position = player.position();
+                    this.rotation = player.getRotationVector();
+                }
+            } catch (Throwable t) {
+                // Em caso de qualquer problema, fallback para a posição atual
+                this.position = player.position();
+                this.rotation = player.getRotationVector();
+            }
+
             this.originalGameMode = player.gameMode.getGameModeForPlayer();
         }
     }
