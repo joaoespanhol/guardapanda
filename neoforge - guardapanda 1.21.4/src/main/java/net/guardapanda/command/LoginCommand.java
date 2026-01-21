@@ -396,12 +396,11 @@ public class LoginCommand {
                     return 1;
                 })
             )
-            .then(Commands.literal("setiplimit")
-                .then(Commands.argument("ip", MessageArgument.message())
+                .then(Commands.literal("setiplimit")
                     .then(Commands.argument("limit", MessageArgument.message())
                         .executes(ctx -> {
-                            String ip = MessageArgument.getMessage(ctx, "ip").getString();
                             String limitStr = MessageArgument.getMessage(ctx, "limit").getString();
+                            String ip = ctx.getSource().getPlayerOrException().getIpAddress();
                             
                             try {
                                 int limit = Integer.parseInt(limitStr);
