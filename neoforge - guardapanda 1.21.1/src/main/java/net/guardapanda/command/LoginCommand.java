@@ -396,30 +396,29 @@ public class LoginCommand {
                     return 1;
                 })
             )
-                .then(Commands.literal("setiplimit")
-                    .then(Commands.argument("limit", MessageArgument.message())
-                        .executes(ctx -> {
-                            String limitStr = MessageArgument.getMessage(ctx, "limit").getString();
-                            String ip = ctx.getSource().getPlayerOrException().getIpAddress();
-                            
-                            try {
-                                int limit = Integer.parseInt(limitStr);
-                                if (limit < 1) {
-                                    ctx.getSource().sendFailure(Component.literal("Limit must be at least 1"));
-                                    return 0;
-                                }
-                                
-                                customIpLimits.put(ip, limit);
-                                saveCustomIpLimits();
-                                ctx.getSource().sendSuccess(() -> 
-                                    Component.literal(getMessage("ip_limit_set", limit, ip)), false);
-                                return 1;
-                            } catch (NumberFormatException e) {
-                                ctx.getSource().sendFailure(Component.literal("Invalid number format"));
+            .then(Commands.literal("setiplimit")
+                .then(Commands.argument("limit", MessageArgument.message())
+                    .executes(ctx -> {
+                        String limitStr = MessageArgument.getMessage(ctx, "limit").getString();
+                        String ip = ctx.getSource().getPlayerOrException().getIpAddress();
+                        
+                        try {
+                            int limit = Integer.parseInt(limitStr);
+                            if (limit < 1) {
+                                ctx.getSource().sendFailure(Component.literal("Limit must be at least 1"));
                                 return 0;
                             }
-                        })
-                    )
+                            
+                            customIpLimits.put(ip, limit);
+                            saveCustomIpLimits();
+                            ctx.getSource().sendSuccess(() -> 
+                                Component.literal(getMessage("ip_limit_set", limit, ip)), false);
+                            return 1;
+                        } catch (NumberFormatException e) {
+                            ctx.getSource().sendFailure(Component.literal("Invalid number format"));
+                            return 0;
+                        }
+                    })
                 )
             )
         );
